@@ -1,0 +1,129 @@
+import React from 'react'
+import { motion } from 'framer-motion'
+import { Timer, Clock } from 'lucide-react'
+import { getModelColor } from '../lib/animations'
+
+function MetricSection({ title, icon: Icon, subtitle, data, valueKey, unitLabel, higherBetter, accentColor }) {
+  if (!data.length) return null
+
+  const values = data.map(m => m[valueKey] || 0)
+  const positiveValues = values.filter(v => v > 0)
+  const max = Math.max(...values, 1)
+  const best = higherBetter
+    ? Math.max(...positiveValues, 0)
+    : Math.min(...(positiveValues.length ? positiveValues : [1]))
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <div className="w-6 h-6 rounded-md flex items-center justify-center" style={{ background: `${accentColor}12` }}>
+          <Icon size={13} style={{ color: accentColor }} />
+        </div>
+        <div>
+          <h3 className="text-xs font-display font-semibold text-[var(--text)]">{title}</h3>
+          <p className="text-[10px] text-[var(--text-muted)]">{subtitle}</p>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {data.map((m, i) => {
+          const value = m[valueKey] || 0
+          const pct = higherBetter
+            ? (max > 0 ? (value / max) * 100 : 0)
+            : (value > 0 ? (best / value) * 100 : 0)
+          const color = getModelColor(i)
+          const isBest = value > 0 && value === best
+
+          return (
+            <div key={m.model}>
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] w-28 truncate font-mono" style={{ color }}>
+                  {m.model}
+                </span>
+                <div className="flex-1 h-7 bg-white/[0.02] rounded-md overflow-hidden border border-white/5 relative">
+                  <motion.div
+                    className="h-full rounded-md"
+                    style={{
+                      background: isBest
+                        ? `linear-gradient(90deg, ${color}15, ${accentColor}40)`
+                        : `linear-gradient(90deg, ${color}08, ${color}30)`,
+                    }}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${Math.max(pct, 2)}%` }}
+                    transition={{ type: 'spring', mass: 1, stiffness: 60, damping: 15, delay: i * 0.12 }}
+                  />
+                </div>
+                <motion.span
+                  className="text-xs font-mono font-bold w-28 text-right flex items-center justify-end gap-1.5"
+                  initial={{ opacity: 0, x: 5 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.4 + i * 0.1 }}
+                >
+                  <span style={{ color: isBest ? accentColor : color }}>
+                    {value > 0 ? `${value.toFixed(valueKey === 'tokens_per_sec' ? 1 : valueKey === 'ttft_ms' ? 0 : 1)}` : '--'}
+                  </span>
+                  <span className="text-[var(--text-muted)] text-[10px] font-normal">{unitLabel}</span>
+                  {isBest && <span className="text-[9px]" style={{ color: accentColor }}>BEST</span>}
+                </motion.span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+export default function SpeedChart({ models, modelStates, result }) {
+  const data = result?.models || []
+
+  if (!data.length) {
+    return (
+      <div className="glass rounded-xl p-12 text-center">
+        <Timer size={32} className="mx-auto text-[var(--text-muted)] mb-3" />
+        <p className="text-sm text-[var(--text-dim)]">Speed data appears after generation completes</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="glass rounded-xl p-6 space-y-8">
+      <h2 className="text-[11px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+        Performance Breakdown
+      </h2>
+
+      <MetricSection
+        title="Generation Speed"
+        icon={Timer}
+        subtitle="Tokens generated per second (higher is better)"
+        data={data}
+        valueKey="tokens_per_sec"
+        unitLabel="tok/s"
+        higherBetter={true}
+        accentColor="#6ea882"
+      />
+
+      <MetricSection
+        title="Time to First Token"
+        icon={Clock}
+        subtitle="How fast the model starts responding (lower is better)"
+        data={data}
+        valueKey="ttft_ms"
+        unitLabel="ms"
+        higherBetter={false}
+        accentColor="#7d93ab"
+      />
+
+      <MetricSection
+        title="Total Generation Time"
+        icon={Clock}
+        subtitle="End-to-end time to complete (lower is better)"
+        data={data}
+        valueKey="total_time_s"
+        unitLabel="s"
+        higherBetter={false}
+        accentColor="#a87c94"
+      />
+    </div>
+  )
+}

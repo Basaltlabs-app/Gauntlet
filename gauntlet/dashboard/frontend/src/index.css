@@ -1,0 +1,355 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================================
+   GAUNTLET DESIGN SYSTEM -- Obsidian
+   Warm glassmorphism. CRM-grade professionalism. Zero neon.
+   Inspired by cinematic-web Midnight Editorial + Warm Analog themes.
+   ============================================================================ */
+
+:root {
+  /* ---- PALETTE ---- */
+  --cs-bg: #0c0d12;
+  --cs-bg-raised: #13141b;
+  --cs-surface: rgba(255, 255, 255, 0.035);
+  --cs-surface-2: rgba(255, 255, 255, 0.055);
+  --cs-surface-3: rgba(255, 255, 255, 0.08);
+  --cs-border: rgba(255, 255, 255, 0.06);
+  --cs-border-hover: rgba(255, 255, 255, 0.10);
+  --cs-border-active: rgba(255, 255, 255, 0.16);
+  --cs-overlay: rgba(0, 0, 0, 0.75);
+
+  /* Text hierarchy -- warm whites and grays */
+  --cs-text: #e8e4dd;
+  --cs-text-dim: #9a9590;
+  --cs-text-muted: #5c5853;
+
+  /* Brand -- warm, desaturated, professional */
+  --cs-bronze: #b08d6e;
+  --cs-steel: #7d93ab;
+  --cs-sage: #6ea882;
+  --cs-gold: #c4a05a;
+  --cs-mauve: #a87c94;
+  --cs-terracotta: #c27065;
+  --cs-teal: #5da4a8;
+  --cs-khaki: #9b8e78;
+
+  /* Semantic aliases */
+  --bg: var(--cs-bg);
+  --primary: var(--cs-bronze);
+  --secondary: var(--cs-steel);
+  --accent: var(--cs-sage);
+  --warning: var(--cs-gold);
+  --error: var(--cs-terracotta);
+  --text: var(--cs-text);
+  --text-dim: var(--cs-text-dim);
+  --text-muted: var(--cs-text-muted);
+  --border: var(--cs-border);
+  --border-strong: var(--cs-border-hover);
+
+  /* ---- TYPOGRAPHY ---- */
+  --font-display: 'Sora', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+
+  /* ---- LAYOUT ---- */
+  --content-max-width: 1320px;
+
+  /* ---- RADIUS ---- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-full: 9999px;
+
+  /* ---- EASING ---- */
+  --ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-snappy: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-material: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ---- DURATION ---- */
+  --duration-fast: 0.15s;
+  --duration-normal: 0.25s;
+  --duration-slow: 0.4s;
+
+  /* ---- Z-INDEX ---- */
+  --z-bg: 0;
+  --z-content: 10;
+  --z-sticky: 20;
+  --z-nav: 200;
+
+  /* ---- SHADOWS (warm-tinted) ---- */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 24px 64px rgba(0, 0, 0, 0.5);
+
+  /* Subtle accent shadows */
+  --shadow-bronze: 0 4px 20px rgba(176, 141, 110, 0.08);
+  --shadow-sage: 0 4px 20px rgba(110, 168, 130, 0.08);
+}
+
+/* ============================================================================
+   RESET & BASE
+   ============================================================================ */
+
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  html { scroll-behavior: auto; }
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--cs-bg);
+  color: var(--cs-text);
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code, pre, .font-mono { font-family: var(--font-mono); }
+
+::selection { background: rgba(176, 141, 110, 0.25); }
+
+/* ============================================================================
+   SCROLLBAR
+   ============================================================================ */
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.12); }
+
+/* ============================================================================
+   AMBIENT BACKGROUND
+   A single warm radial glow, barely visible. No dots, no mesh patterns.
+   ============================================================================ */
+
+.bg-ambient {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-bg);
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 60% 50% at 20% 20%, rgba(176, 141, 110, 0.035) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 40% at 80% 80%, rgba(125, 147, 171, 0.02) 0%, transparent 70%);
+}
+
+/* ============================================================================
+   GLASSMORPHISM -- three tiers, warm-tinted
+   ============================================================================ */
+
+.glass {
+  background: rgba(19, 20, 27, 0.55);
+  backdrop-filter: blur(20px) saturate(130%);
+  -webkit-backdrop-filter: blur(20px) saturate(130%);
+  border: 1px solid var(--cs-border);
+  box-shadow: var(--shadow-sm);
+}
+
+.glass-medium {
+  background: rgba(22, 23, 31, 0.65);
+  backdrop-filter: blur(28px) saturate(140%);
+  -webkit-backdrop-filter: blur(28px) saturate(140%);
+  border: 1px solid var(--cs-border-hover);
+  box-shadow: var(--shadow-md);
+}
+
+.glass-heavy {
+  background: rgba(26, 27, 36, 0.8);
+  backdrop-filter: blur(40px) saturate(150%);
+  -webkit-backdrop-filter: blur(40px) saturate(150%);
+  border: 1px solid var(--cs-border-active);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ============================================================================
+   BUTTON SYSTEM -- solid, warm, no gradients
+   ============================================================================ */
+
+.btn-primary {
+  background: var(--cs-bronze);
+  color: #0c0d12;
+  font-weight: 600;
+  border: none;
+  box-shadow: var(--shadow-bronze);
+  transition: all var(--duration-normal) var(--ease-smooth);
+}
+.btn-primary:hover {
+  background: #c09e80;
+  box-shadow: 0 6px 24px rgba(176, 141, 110, 0.15);
+  transform: translateY(-1px);
+}
+.btn-primary:active {
+  transform: translateY(0);
+  background: #a07e60;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--cs-steel);
+  font-weight: 600;
+  border: 1px solid rgba(125, 147, 171, 0.25);
+  transition: all var(--duration-normal) var(--ease-smooth);
+}
+.btn-secondary:hover {
+  background: rgba(125, 147, 171, 0.06);
+  border-color: rgba(125, 147, 171, 0.4);
+}
+
+.btn-outline {
+  border: 1px solid var(--cs-border-hover);
+  background: transparent;
+  transition: all var(--duration-fast) var(--ease-smooth);
+}
+.btn-outline:hover {
+  border-color: var(--cs-border-active);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* ============================================================================
+   NAVIGATION
+   ============================================================================ */
+
+.nav-bar {
+  background: rgba(12, 13, 18, 0.85);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  border-bottom: 1px solid var(--cs-border);
+}
+
+/* ============================================================================
+   STATUS INDICATORS
+   ============================================================================ */
+
+.status-success {
+  background: var(--cs-sage);
+  box-shadow: 0 0 6px rgba(110, 168, 130, 0.4);
+}
+.status-warning {
+  background: var(--cs-gold);
+  box-shadow: 0 0 6px rgba(196, 160, 90, 0.4);
+}
+.status-error {
+  background: var(--cs-terracotta);
+  box-shadow: 0 0 6px rgba(194, 112, 101, 0.4);
+}
+
+/* ============================================================================
+   WINNER / ACCENT HIGHLIGHTS -- subtle, warm
+   ============================================================================ */
+
+.highlight-winner {
+  border-color: rgba(110, 168, 130, 0.25);
+  box-shadow: var(--shadow-sage);
+}
+
+/* ============================================================================
+   PROGRESS BARS
+   ============================================================================ */
+
+.progress-success {
+  background: linear-gradient(90deg, var(--cs-steel), var(--cs-sage));
+}
+.progress-fail {
+  background: linear-gradient(90deg, var(--cs-mauve), var(--cs-terracotta));
+}
+
+/* ============================================================================
+   TABLE SYSTEM
+   ============================================================================ */
+
+.table-row-hover {
+  transition: background var(--duration-fast) ease;
+}
+.table-row-hover:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* ============================================================================
+   GRADIENT TEXT -- subtle warm fade, not neon
+   ============================================================================ */
+
+.gradient-text-hero {
+  background: linear-gradient(135deg, #ffffff 0%, #d4cfc8 60%, #b5b0a8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ============================================================================
+   CARD SYSTEM
+   ============================================================================ */
+
+.card-subtle {
+  position: relative;
+  overflow: hidden;
+}
+.card-subtle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.04), transparent);
+}
+
+/* ============================================================================
+   ANIMATIONS
+   ============================================================================ */
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, var(--cs-surface) 25%, var(--cs-surface-2) 50%, var(--cs-surface) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s ease infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+/* ============================================================================
+   RESPONSIVE
+   ============================================================================ */
+
+@media (max-width: 768px) {
+  .bg-ambient { opacity: 0.7; }
+}
+
+/* ============================================================================
+   UTILITY CLASSES
+   ============================================================================ */
+
+.font-display { font-family: var(--font-display); }
+.tracking-tighter { letter-spacing: -0.025em; }
+
+.divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--cs-border-hover), transparent);
+}
+
+/* Legacy compat */
+.spotlight-container { position: relative; }
+.spotlight-dot { display: none; }
+.tilt-wrapper { }
+.tilt-inner { position: relative; }
+.tilt-glare { display: none; }

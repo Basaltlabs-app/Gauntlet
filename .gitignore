@@ -1,0 +1,38 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+/dist/
+build/
+!gauntlet/dashboard/frontend/dist/
+*.egg
+.eggs/
+
+# Node
+node_modules/
+# Keep dist/ checked in so pip install works without npm
+
+# Environment
+.env
+.venv
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Gauntlet data
+.gauntlet/
+
+# Claude
+.claude/
+CLAUDE.md
+
+# Internal docs
+docs/superpowers/
+.vercel

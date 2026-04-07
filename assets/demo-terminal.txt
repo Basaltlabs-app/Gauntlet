@@ -1,0 +1,32 @@
+  GAUNTLET    Behavioral reliability under pressure.
+
+Prompt: explain how a hash table works
+Models: qwen3.5:4b vs gemma4:e2b
+
+Sequential mode (low memory)
+
+Running qwen3.5:4b...
+  ⠧ qwen3.5:4b  ████████████████████████████░░ 312 tokens  18.4 tok/s 0:00:17
+  Done - 312 tokens, 18.4 tok/s
+
+Running gemma4:e2b...
+  ⠧ gemma4:e2b  █████████████████████████░░░░░ 287 tokens  12.1 tok/s 0:00:24
+  Done - 287 tokens, 12.1 tok/s
+
+Scoring: Speed(30%) + Quality(50%) + Responsiveness(20%)
+
+                          Composite Scoring
+┏━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┓
+┃ Model       ┃ Composite ┃ Speed           ┃ Responsiveness     ┃ Quality ┃
+┡━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━┩
+│ qwen3.5:4b  │      0.82 │ 18.4 tok/s  #1  │ 210ms TTFT  #1     │ 7.5/10  │
+│ gemma4:e2b  │      0.71 │ 12.1 tok/s      │ 340ms TTFT         │ 8.0/10  │
+└─────────────┴───────────┴─────────────────┴────────────────────┴─────────┘
+
+╭──────────────────────────────── Winner ────────────────────────────────╮
+│ qwen3.5:4b                                                            │
+│                                                                       │
+│ qwen3.5:4b scored 0.82 vs gemma4:e2b at 0.71. Led Speed: 18.4 tok/s  │
+│ vs 12.1 tok/s. Led Responsiveness: 210ms TTFT vs 340ms TTFT.         │
+│ Trailed Quality: 7.5/10 vs 8.0/10.                                   │
+╰───────────────────────────────────────────────────────────────────────╯
