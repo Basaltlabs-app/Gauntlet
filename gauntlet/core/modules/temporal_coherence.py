@@ -56,21 +56,21 @@ SEED_MESSAGES: list[str] = [
 # ---------------------------------------------------------------------------
 
 FILLER_MESSAGES: list[str] = [
-    "What are the main differences between TCP and UDP?",
-    "Can you explain how photosynthesis works?",
-    "What's the Pythagorean theorem?",
-    "Tell me about the history of the Roman Empire.",
-    "How does a combustion engine work?",
-    "What are the key principles of object-oriented programming?",
-    "Explain the water cycle.",
-    "What causes earthquakes?",
-    "How does encryption work?",
-    "What are the primary colors and why?",
-    "Explain supply and demand in economics.",
-    "How do vaccines work?",
-    "What is the theory of relativity?",
-    "How does a microprocessor work?",
-    "What are the phases of the moon?",
+    "Explain the difference between optimistic and pessimistic locking in database systems, and when each strategy is preferred.",
+    "How does mRNA vaccine technology differ from traditional inactivated virus vaccines in terms of immune response mechanism?",
+    "Describe the Byzantine Generals Problem and explain why it is fundamental to distributed consensus algorithms.",
+    "What are the key differences between Type I and Type II errors in hypothesis testing, and how do you control for each?",
+    "Explain how a CPU branch predictor works and why branch misprediction is costly in modern pipelined processors.",
+    "What were the primary economic factors that contributed to the 2008 financial crisis, and what regulatory changes followed?",
+    "Describe the process of plate tectonics and explain how convection currents in the mantle drive continental drift.",
+    "How does the Raft consensus algorithm achieve fault tolerance in distributed systems compared to Paxos?",
+    "Explain the difference between supervised, unsupervised, and reinforcement learning, including a practical use case for each.",
+    "What is the mechanism by which CRISPR-Cas9 edits DNA, and what are the current limitations of the technology?",
+    "Describe how a bloom filter works, including its probabilistic guarantees and why it cannot produce false negatives.",
+    "What role did the Bretton Woods system play in post-WWII international monetary policy, and why was it eventually abandoned?",
+    "Explain the CAP theorem and describe a real-world system that makes each of the three possible tradeoff choices.",
+    "How do modern lithium-ion batteries work at the electrochemical level, and what limits their energy density?",
+    "Describe the Doppler effect and explain how it is used in both medical ultrasound and astronomical redshift measurements.",
 ]
 
 
