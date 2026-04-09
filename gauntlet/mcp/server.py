@@ -66,18 +66,20 @@ def _delete_runner(session_id: str) -> None:
 def _cleanup_stale_sessions() -> None:
     """Purge orphaned sessions (started but never finished).
 
-    Called opportunistically on each new run start. Cheap: one DELETE query.
-    Cleans sessions older than 1 hour to avoid accumulation.
+    Uses probabilistic debouncing: only ~1 in 20 calls actually runs the
+    DELETE query. This prevents a thundering herd when many users start
+    sessions simultaneously. The pg_cron job handles the rest.
     """
+    import random
+    if random.random() > 0.05:  # 95% chance to skip — pg_cron handles it
+        return
+
     if _USE_SUPABASE:
         try:
             from gauntlet.mcp.session_store import cleanup_old_sessions
             cleanup_old_sessions(max_age_hours=1)
         except Exception as e:
             logger.debug(f"Session cleanup failed (non-fatal): {e}")
-    else:
-        # In-memory: nothing to clean, sessions die with the process
-        pass
 
 
 # ---------------------------------------------------------------------------
