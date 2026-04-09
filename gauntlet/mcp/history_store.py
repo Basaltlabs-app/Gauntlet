@@ -153,9 +153,15 @@ def _get_filtered_history(
     provider: Optional[str] = None,
     model_family: Optional[str] = None,
     os_platform: Optional[str] = None,
+    source: Optional[str] = None,
+    exclude_source: Optional[str] = None,
     limit: int = 500,
 ) -> list[dict]:
-    """Fetch history rows with optional JSONB filters."""
+    """Fetch history rows with optional JSONB filters.
+
+    Use source="mcp" to get only MCP self-test results.
+    Use exclude_source="mcp" to get only community (local hardware) results.
+    """
     if not is_available():
         return []
 
@@ -165,6 +171,12 @@ def _get_filtered_history(
             "order": "timestamp.desc",
             "limit": str(limit),
         }
+
+        # Source filter: include or exclude specific sources
+        if source:
+            params["source"] = f"eq.{source}"
+        elif exclude_source:
+            params["source"] = f"neq.{exclude_source}"
 
         # JSONB arrow filters (Supabase PostgREST syntax)
         if gpu_class:
@@ -200,12 +212,15 @@ def get_aggregated_stats(
     provider: Optional[str] = None,
     model_family: Optional[str] = None,
     os_platform: Optional[str] = None,
+    source: Optional[str] = None,
+    exclude_source: Optional[str] = None,
     min_tests: int = 1,
 ) -> list[dict]:
     """Get aggregated stats per model for the public leaderboard graphs.
 
-    Supports filtering by hardware, quantization, provider, etc.
-    Returns per-model: avg scores, test count, latest grade, category averages.
+    Supports filtering by hardware, quantization, provider, source, etc.
+    Use source="mcp" for MCP-only results. Use exclude_source="mcp" for
+    community-only results (local hardware).
     """
     if not is_available():
         return []
@@ -219,6 +234,8 @@ def get_aggregated_stats(
             provider=provider,
             model_family=model_family,
             os_platform=os_platform,
+            source=source,
+            exclude_source=exclude_source,
             limit=500,
         )
         if not rows:

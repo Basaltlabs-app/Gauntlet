@@ -86,13 +86,15 @@ async def history_handler(request: Request) -> Response:
         provider=params.get("provider"),
         model_family=params.get("model_family"),
         os_platform=params.get("os_platform"),
+        source=params.get("source"),
+        exclude_source=params.get("exclude_source"),
         min_tests=min_tests,
     )
 
     # Build active filters for client display
     active_filters = {
         k: v for k, v in params.items()
-        if k in ("gpu_class", "quantization", "parameter_size", "provider", "model_family", "os_platform", "min_tests")
+        if k in ("gpu_class", "quantization", "parameter_size", "provider", "model_family", "os_platform", "min_tests", "source", "exclude_source")
     }
 
     return JSONResponse(
