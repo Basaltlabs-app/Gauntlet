@@ -1,22 +1,60 @@
 """System fingerprint collector for community benchmarking.
 
 Captures anonymous hardware, runtime, and model metadata so community
-results can be filtered by setup: "Which model is best on Apple Silicon
-with Q4 quantization and 16GB RAM?"
+results can be filtered by setup: "Which model is best on Apple Silicon M2
+with 16GB RAM, Q4 quantization?"
 
 Privacy: No IP, username, MAC address, or hostname is collected.
-Only hardware class, core counts, RAM, and model configuration.
+Only hardware class identifiers (GPU model, CPU model, RAM tier) and
+model configuration. "RTX 4090" identifies a GPU tier, not a person.
 """
 
 from __future__ import annotations
 
 import os
 import platform
+import subprocess
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional
 
 import psutil
+
+
+# ---------------------------------------------------------------------------
+# RAM bucket tiers (auto-adapts as new hardware appears)
+# ---------------------------------------------------------------------------
+
+_RAM_BUCKETS = [
+    (6, "4gb"),
+    (12, "8gb"),
+    (20, "16gb"),
+    (28, "24gb"),
+    (48, "32gb"),
+    (80, "64gb"),
+    (112, "96gb"),
+    (160, "128gb"),
+    (float("inf"), "128gb+"),
+]
+
+_VRAM_BUCKETS = [
+    (6, "4gb"),
+    (10, "8gb"),
+    (14, "12gb"),
+    (20, "16gb"),
+    (28, "24gb"),
+    (40, "32gb"),
+    (52, "48gb"),
+    (float("inf"), "48gb+"),
+]
+
+
+def _bucket(value_gb: float, buckets: list[tuple[float, str]]) -> str:
+    """Find the bucket label for a given GB value."""
+    for threshold, label in buckets:
+        if value_gb < threshold:
+            return label
+    return buckets[-1][1]
 
 
 @dataclass
@@ -26,8 +64,14 @@ class SystemFingerprint:
     # Hardware
     cpu_arch: str = "unknown"          # arm64, x86_64
     cpu_cores: int = 0                 # physical cores
-    ram_total_gb: float = 0.0          # total system RAM
+    cpu_model: str = "unknown"         # "Apple M1", "AMD Ryzen 9 7950X"
+    ram_total_gb: float = 0.0          # exact RAM
+    ram_bucket: str = "unknown"        # "8gb", "16gb", "32gb", etc.
     gpu_class: str = "unknown"         # apple_silicon, nvidia, amd, none
+    gpu_name: str = "unknown"          # "Apple M1", "RTX 4090", "RX 7900 XTX"
+    vram_gb: float = 0.0              # dedicated VRAM (shared on Apple Silicon)
+    vram_bucket: str = "unknown"       # "8gb", "16gb", "24gb", etc.
+    device_class: str = "unknown"      # laptop, desktop, server, cloud
 
     # Runtime
     python_version: str = ""           # 3.14.2
@@ -46,12 +90,18 @@ class SystemFingerprint:
     provider_version: str = ""         # Ollama version if local
 
     def to_storage_dicts(self) -> tuple[dict, dict, dict]:
-        """Split into (hardware, runtime, model_config) dicts for Supabase JSONB columns."""
+        """Split into (hardware, runtime, model_config) dicts for Supabase JSONB."""
         hardware = {
             "cpu_arch": self.cpu_arch,
             "cpu_cores": self.cpu_cores,
+            "cpu_model": self.cpu_model,
             "ram_total_gb": round(self.ram_total_gb, 1),
+            "ram_bucket": self.ram_bucket,
             "gpu_class": self.gpu_class,
+            "gpu_name": self.gpu_name,
+            "vram_gb": round(self.vram_gb, 1),
+            "vram_bucket": self.vram_bucket,
+            "device_class": self.device_class,
             "os_platform": self.os_platform,
         }
         runtime = {
@@ -73,41 +123,163 @@ class SystemFingerprint:
         return asdict(self)
 
 
-def _detect_gpu_class() -> str:
-    """Detect the GPU class without installing GPU-specific libraries."""
+# ---------------------------------------------------------------------------
+# Hardware detection
+# ---------------------------------------------------------------------------
+
+def _run_cmd(cmd: list[str], timeout: int = 3) -> str:
+    """Run a command and return stdout, or empty string on failure."""
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError, PermissionError):
+        pass
+    return ""
+
+
+def _detect_cpu_model() -> str:
+    """Detect the CPU model name."""
     system = platform.system().lower()
 
-    # Apple Silicon (macOS with arm64)
-    if system == "darwin" and platform.machine() == "arm64":
-        return "apple_silicon"
+    if system == "darwin":
+        # macOS: sysctl gives the chip name
+        brand = _run_cmd(["sysctl", "-n", "machdep.cpu.brand_string"])
+        if brand:
+            return brand
+        # Apple Silicon doesn't always have brand_string, use chip name
+        chip = _run_cmd(["sysctl", "-n", "hw.chip"])
+        if chip:
+            return chip
 
-    # NVIDIA (check for driver presence)
-    if Path("/proc/driver/nvidia/version").exists():
-        return "nvidia"
-    if os.environ.get("CUDA_VISIBLE_DEVICES") is not None:
-        return "nvidia"
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-            capture_output=True, text=True, timeout=3,
+    elif system == "linux":
+        try:
+            with open("/proc/cpuinfo") as f:
+                for line in f:
+                    if line.startswith("model name"):
+                        return line.split(":", 1)[1].strip()
+        except (OSError, IOError):
+            pass
+
+    # Fallback
+    proc = platform.processor()
+    if proc and proc != "":
+        return proc
+    return platform.machine()
+
+
+def _detect_gpu_info() -> tuple[str, str, float]:
+    """Detect GPU class, name, and VRAM.
+
+    Returns: (gpu_class, gpu_name, vram_gb)
+    """
+    system = platform.system().lower()
+
+    # Apple Silicon: GPU is integrated, VRAM = shared system RAM
+    if system == "darwin" and platform.machine() == "arm64":
+        ram_gb = psutil.virtual_memory().total / (1024 ** 3)
+        # Get chip name for GPU name
+        chip = _run_cmd(["sysctl", "-n", "machdep.cpu.brand_string"])
+        if not chip:
+            chip = _run_cmd(["sysctl", "-n", "hw.chip"])
+        if not chip:
+            chip = "Apple Silicon"
+        return "apple_silicon", chip, round(ram_gb, 1)
+
+    # NVIDIA: nvidia-smi for name and VRAM
+    nvidia_name = _run_cmd(
+        ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader,nounits"]
+    )
+    if nvidia_name:
+        vram_str = _run_cmd(
+            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"]
         )
-        if result.returncode == 0 and result.stdout.strip():
-            return "nvidia"
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        pass
+        vram_gb = 0.0
+        if vram_str:
+            try:
+                vram_gb = round(float(vram_str.split("\n")[0]) / 1024, 1)
+            except (ValueError, IndexError):
+                pass
+        return "nvidia", nvidia_name.split("\n")[0], vram_gb
+
+    # Check for NVIDIA driver without nvidia-smi
+    if Path("/proc/driver/nvidia/version").exists():
+        return "nvidia", "NVIDIA GPU (unknown model)", 0.0
+    if os.environ.get("CUDA_VISIBLE_DEVICES") is not None:
+        return "nvidia", "NVIDIA GPU (CUDA)", 0.0
 
     # AMD ROCm
-    if Path("/opt/rocm").exists():
-        return "amd"
-    if os.environ.get("ROCM_PATH"):
-        return "amd"
+    if Path("/opt/rocm").exists() or os.environ.get("ROCM_PATH"):
+        amd_name = _run_cmd(["rocm-smi", "--showproductname"])
+        vram_str = _run_cmd(["rocm-smi", "--showmeminfo", "vram"])
+        vram_gb = 0.0
+        if vram_str:
+            # Parse VRAM from rocm-smi output
+            for line in vram_str.split("\n"):
+                if "total" in line.lower():
+                    parts = line.split()
+                    for p in parts:
+                        try:
+                            val = float(p)
+                            if val > 1000:  # likely in MB
+                                vram_gb = round(val / 1024, 1)
+                            break
+                        except ValueError:
+                            continue
+        gpu_name = "AMD GPU"
+        if amd_name:
+            for line in amd_name.split("\n"):
+                if "GPU" in line or "Radeon" in line or "RX" in line:
+                    gpu_name = line.strip()
+                    break
+        return "amd", gpu_name, vram_gb
 
-    # Intel (macOS with x86_64 often has integrated Intel GPU)
+    # Intel integrated (macOS x86_64)
     if system == "darwin" and platform.machine() == "x86_64":
-        return "intel_integrated"
+        return "intel_integrated", "Intel Integrated", 0.0
 
-    return "none"
+    return "none", "No dedicated GPU", 0.0
+
+
+def _detect_device_class() -> str:
+    """Infer whether this is a laptop, desktop, server, or cloud instance."""
+    # Check for battery (laptops have one)
+    try:
+        battery = psutil.sensors_battery()
+        if battery is not None:
+            return "laptop"
+    except (AttributeError, RuntimeError):
+        pass
+
+    # Cloud detection: common cloud markers
+    system = platform.system().lower()
+    if system == "linux":
+        # Check for common cloud instance markers
+        dmi_product = ""
+        try:
+            with open("/sys/class/dmi/id/product_name") as f:
+                dmi_product = f.read().strip().lower()
+        except (OSError, IOError):
+            pass
+
+        cloud_markers = ["virtual", "kvm", "xen", "hvm", "amazon", "google", "azure", "digitalocean"]
+        if any(m in dmi_product for m in cloud_markers):
+            return "cloud"
+
+        # Check for container markers
+        if Path("/.dockerenv").exists():
+            return "cloud"
+
+    # High core count + no battery = likely desktop or server
+    cores = os.cpu_count() or 0
+    ram_gb = psutil.virtual_memory().total / (1024 ** 3)
+
+    if cores >= 32 or ram_gb >= 128:
+        return "server"
+    if cores >= 4:
+        return "desktop"
+
+    return "unknown"
 
 
 def _get_ollama_version() -> str:
@@ -139,7 +311,6 @@ def _get_model_metadata(model_name: str, provider: str) -> dict:
             details = data.get("details", {})
             model_info = data.get("model_info", {})
 
-            # Extract size from modelfile or model_info
             size_bytes = 0
             for key, val in model_info.items():
                 if "size" in key.lower() and isinstance(val, (int, float)):
@@ -157,6 +328,10 @@ def _get_model_metadata(model_name: str, provider: str) -> dict:
     return {}
 
 
+# ---------------------------------------------------------------------------
+# Main collector
+# ---------------------------------------------------------------------------
+
 def collect_fingerprint(
     model_name: str,
     provider: str,
@@ -173,13 +348,21 @@ def collect_fingerprint(
         SystemFingerprint with hardware, runtime, and model metadata
     """
     mem = psutil.virtual_memory()
+    ram_gb = round(mem.total / (1024 ** 3), 1)
+    gpu_class, gpu_name, vram_gb = _detect_gpu_info()
 
     fp = SystemFingerprint(
         # Hardware
         cpu_arch=platform.machine(),
         cpu_cores=os.cpu_count() or 0,
-        ram_total_gb=round(mem.total / (1024 ** 3), 1),
-        gpu_class=_detect_gpu_class(),
+        cpu_model=_detect_cpu_model(),
+        ram_total_gb=ram_gb,
+        ram_bucket=_bucket(ram_gb, _RAM_BUCKETS),
+        gpu_class=gpu_class,
+        gpu_name=gpu_name,
+        vram_gb=vram_gb,
+        vram_bucket=_bucket(vram_gb, _VRAM_BUCKETS) if vram_gb > 0 else "shared" if gpu_class == "apple_silicon" else "none",
+        device_class=_detect_device_class(),
 
         # Runtime
         python_version=platform.python_version(),
@@ -205,6 +388,7 @@ def collect_fingerprint(
         fp.model_family = model_name.split("-")[0] if "-" in model_name else model_name
         fp.quantization = "cloud"
         fp.model_format = "api"
+        fp.device_class = "cloud"
 
     # Model size
     if model_size_bytes > 0:

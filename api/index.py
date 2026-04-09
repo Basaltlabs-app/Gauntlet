@@ -88,14 +88,19 @@ async def history_handler(request: Request) -> Response:
         os_platform=params.get("os_platform"),
         source=params.get("source"),
         exclude_source=params.get("exclude_source"),
+        ram_bucket=params.get("ram_bucket"),
+        vram_bucket=params.get("vram_bucket"),
+        device_class=params.get("device_class"),
+        gpu_name=params.get("gpu_name"),
         min_tests=min_tests,
     )
 
-    # Build active filters for client display
-    active_filters = {
-        k: v for k, v in params.items()
-        if k in ("gpu_class", "quantization", "parameter_size", "provider", "model_family", "os_platform", "min_tests", "source", "exclude_source")
+    _FILTER_KEYS = {
+        "gpu_class", "quantization", "parameter_size", "provider",
+        "model_family", "os_platform", "min_tests", "source",
+        "exclude_source", "ram_bucket", "vram_bucket", "device_class", "gpu_name",
     }
+    active_filters = {k: v for k, v in params.items() if k in _FILTER_KEYS}
 
     return JSONResponse(
         {
@@ -197,6 +202,35 @@ async def submit_handler(request: Request) -> Response:
     return JSONResponse({"status": "ok"}, headers=CORS_HEADERS)
 
 
+async def stats_handler(request: Request) -> Response:
+    """GET /api/leaderboard/stats -- community aggregate statistics."""
+    from gauntlet.mcp.history_store import get_community_stats, is_available
+
+    if not is_available():
+        return JSONResponse({"total_tests": 0}, headers=CORS_HEADERS)
+
+    stats = get_community_stats()
+    return JSONResponse(stats, headers=CORS_HEADERS)
+
+
+async def model_detail_handler(request: Request) -> Response:
+    """GET /api/leaderboard/model?name=qwen3.5:4b -- per-hardware breakdown for one model."""
+    from gauntlet.mcp.history_store import get_model_detail, is_available
+
+    model_name = request.query_params.get("name", "")
+    if not model_name:
+        return JSONResponse({"error": "Missing name parameter"}, status_code=400, headers=CORS_HEADERS)
+
+    if not is_available():
+        return JSONResponse({"error": "Storage not configured"}, status_code=503, headers=CORS_HEADERS)
+
+    detail = get_model_detail(model_name)
+    if detail is None:
+        return JSONResponse({"error": f"No data for model: {model_name}"}, status_code=404, headers=CORS_HEADERS)
+
+    return JSONResponse(detail, headers=CORS_HEADERS)
+
+
 async def cors_preflight(request: Request) -> Response:
     return Response("", headers=CORS_HEADERS)
 
@@ -216,6 +250,10 @@ class _CombinedApp:
             routes=[
                 Route("/api/submit", submit_handler, methods=["POST"]),
                 Route("/api/submit", cors_preflight, methods=["OPTIONS"]),
+                Route("/api/leaderboard/stats", stats_handler, methods=["GET"]),
+                Route("/api/leaderboard/stats", cors_preflight, methods=["OPTIONS"]),
+                Route("/api/leaderboard/model", model_detail_handler, methods=["GET"]),
+                Route("/api/leaderboard/model", cors_preflight, methods=["OPTIONS"]),
                 Route("/api/leaderboard/history", history_handler, methods=["GET"]),
                 Route("/api/leaderboard/history", cors_preflight, methods=["OPTIONS"]),
                 Route("/api/leaderboard", leaderboard_handler, methods=["GET"]),

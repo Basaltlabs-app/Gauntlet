@@ -155,6 +155,10 @@ def _get_filtered_history(
     os_platform: Optional[str] = None,
     source: Optional[str] = None,
     exclude_source: Optional[str] = None,
+    ram_bucket: Optional[str] = None,
+    vram_bucket: Optional[str] = None,
+    device_class: Optional[str] = None,
+    gpu_name: Optional[str] = None,
     limit: int = 500,
 ) -> list[dict]:
     """Fetch history rows with optional JSONB filters.
@@ -192,6 +196,16 @@ def _get_filtered_history(
         if os_platform:
             params["hardware->>os_platform"] = f"eq.{os_platform}"
 
+        # Extended filters (new enriched fields)
+        if ram_bucket:
+            params["hardware->>ram_bucket"] = f"eq.{ram_bucket}"
+        if vram_bucket:
+            params["hardware->>vram_bucket"] = f"eq.{vram_bucket}"
+        if device_class:
+            params["hardware->>device_class"] = f"eq.{device_class}"
+        if gpu_name:
+            params["hardware->>gpu_name"] = f"ilike.*{gpu_name}*"
+
         resp = httpx.get(
             _table_url(),
             headers={**_headers(), "Prefer": "return=representation"},
@@ -214,6 +228,10 @@ def get_aggregated_stats(
     os_platform: Optional[str] = None,
     source: Optional[str] = None,
     exclude_source: Optional[str] = None,
+    ram_bucket: Optional[str] = None,
+    vram_bucket: Optional[str] = None,
+    device_class: Optional[str] = None,
+    gpu_name: Optional[str] = None,
     min_tests: int = 1,
 ) -> list[dict]:
     """Get aggregated stats per model for the public leaderboard graphs.
@@ -236,6 +254,10 @@ def get_aggregated_stats(
             os_platform=os_platform,
             source=source,
             exclude_source=exclude_source,
+            ram_bucket=ram_bucket,
+            vram_bucket=vram_bucket,
+            device_class=device_class,
+            gpu_name=gpu_name,
             limit=500,
         )
         if not rows:
@@ -338,3 +360,174 @@ def get_aggregated_stats(
     except Exception as e:
         logger.warning(f"Failed to aggregate stats: {e}")
         return []
+
+
+def get_community_stats() -> dict:
+    """Get aggregate community statistics for the stats bar."""
+    if not is_available():
+        return {}
+
+    try:
+        rows = _get_filtered_history(exclude_source="mcp", limit=1000)
+        if not rows:
+            return {"total_tests": 0, "unique_models": 0}
+
+        models = set()
+        gpu_dist: dict[str, int] = {}
+        ram_dist: dict[str, int] = {}
+        os_dist: dict[str, int] = {}
+        quant_dist: dict[str, int] = {}
+        device_dist: dict[str, int] = {}
+        configs = set()
+
+        for row in rows:
+            models.add(row["model_name"])
+            hw = row.get("hardware") or {}
+            mc = row.get("model_config") or {}
+
+            gpu = hw.get("gpu_class", "unknown")
+            gpu_dist[gpu] = gpu_dist.get(gpu, 0) + 1
+
+            ram = hw.get("ram_bucket", "unknown")
+            ram_dist[ram] = ram_dist.get(ram, 0) + 1
+
+            osp = hw.get("os_platform", "unknown")
+            os_dist[osp] = os_dist.get(osp, 0) + 1
+
+            quant = mc.get("quantization", "unknown")
+            quant_dist[quant] = quant_dist.get(quant, 0) + 1
+
+            device = hw.get("device_class", "unknown")
+            device_dist[device] = device_dist.get(device, 0) + 1
+
+            configs.add(f"{gpu}_{ram}_{quant}")
+
+        model_counts: dict[str, int] = {}
+        for row in rows:
+            n = row["model_name"]
+            model_counts[n] = model_counts.get(n, 0) + 1
+        most_tested = max(model_counts, key=model_counts.get) if model_counts else ""
+
+        return {
+            "total_tests": len(rows),
+            "unique_models": len(models),
+            "unique_configs": len(configs),
+            "most_tested_model": most_tested,
+            "gpu_distribution": dict(sorted(gpu_dist.items(), key=lambda x: x[1], reverse=True)),
+            "ram_distribution": dict(sorted(ram_dist.items(), key=lambda x: x[1], reverse=True)),
+            "os_distribution": dict(sorted(os_dist.items(), key=lambda x: x[1], reverse=True)),
+            "quantization_distribution": dict(sorted(quant_dist.items(), key=lambda x: x[1], reverse=True)),
+            "device_distribution": dict(sorted(device_dist.items(), key=lambda x: x[1], reverse=True)),
+        }
+    except Exception as e:
+        logger.warning(f"Failed to get community stats: {e}")
+        return {}
+
+
+def get_model_detail(model_name: str) -> Optional[dict]:
+    """Get detailed stats for a single model with per-hardware breakdown."""
+    if not is_available():
+        return None
+
+    try:
+        rows = _get_filtered_history(exclude_source="mcp", limit=500)
+        if not rows:
+            return None
+
+        model_rows = [r for r in rows if r["model_name"] == model_name]
+        if not model_rows:
+            return None
+
+        scores = [r["overall_score"] for r in model_rows if r.get("overall_score") is not None]
+        trusts = [r["trust_score"] for r in model_rows if r.get("trust_score") is not None]
+        grades = [r["grade"] for r in model_rows if r.get("grade")]
+
+        avg_score = sum(scores) / len(scores) if scores else 0
+        avg_trust = sum(trusts) / len(trusts) if trusts else 0
+
+        cat_totals: dict[str, float] = {}
+        cat_counts: dict[str, int] = {}
+        for row in model_rows:
+            cats = row.get("category_scores") or {}
+            for cat, score in cats.items():
+                if isinstance(score, (int, float)):
+                    cat_totals[cat] = cat_totals.get(cat, 0) + score
+                    cat_counts[cat] = cat_counts.get(cat, 0) + 1
+
+        cat_avgs = {
+            cat: round(cat_totals[cat] / cat_counts[cat], 1)
+            for cat in cat_totals if cat_counts.get(cat, 0) > 0
+        }
+
+        hw_groups: dict[str, dict] = {}
+        for row in model_rows:
+            hw = row.get("hardware") or {}
+            mc = row.get("model_config") or {}
+
+            gpu = hw.get("gpu_class", "unknown")
+            gpu_name = hw.get("gpu_name", gpu)
+            ram = hw.get("ram_bucket", "unknown")
+            quant = mc.get("quantization", "unknown")
+            device = hw.get("device_class", "unknown")
+
+            key = f"{gpu}|{ram}|{quant}"
+            if key not in hw_groups:
+                hw_groups[key] = {
+                    "config": f"{gpu_name}, {ram} RAM, {quant}",
+                    "gpu_class": gpu,
+                    "gpu_name": gpu_name,
+                    "ram_bucket": ram,
+                    "quantization": quant,
+                    "device_class": device,
+                    "scores": [],
+                    "history": [],
+                }
+
+            g = hw_groups[key]
+            if row.get("overall_score") is not None:
+                g["scores"].append(row["overall_score"])
+            if len(g["history"]) < 10:
+                g["history"].append({
+                    "timestamp": row["timestamp"],
+                    "overall_score": row.get("overall_score"),
+                })
+
+        breakdown = []
+        for key, g in hw_groups.items():
+            if g["scores"]:
+                breakdown.append({
+                    "config": g["config"],
+                    "gpu_class": g["gpu_class"],
+                    "gpu_name": g["gpu_name"],
+                    "ram_bucket": g["ram_bucket"],
+                    "quantization": g["quantization"],
+                    "device_class": g["device_class"],
+                    "avg_score": round(sum(g["scores"]) / len(g["scores"]), 1),
+                    "test_count": len(g["scores"]),
+                    "history": list(reversed(g["history"])),
+                })
+        breakdown.sort(key=lambda x: x["avg_score"], reverse=True)
+
+        history = []
+        for row in model_rows[:20]:
+            history.append({
+                "timestamp": row["timestamp"],
+                "overall_score": row.get("overall_score"),
+                "trust_score": row.get("trust_score"),
+            })
+
+        return {
+            "name": model_name,
+            "overall": {
+                "avg_score": round(avg_score, 1),
+                "avg_trust": round(avg_trust, 1),
+                "grade": grades[0] if grades else "?",
+                "test_count": len(model_rows),
+            },
+            "category_averages": cat_avgs,
+            "hardware_breakdown": breakdown,
+            "history": list(reversed(history)),
+        }
+    except Exception as e:
+        logger.warning(f"Failed to get model detail: {e}")
+        return None
