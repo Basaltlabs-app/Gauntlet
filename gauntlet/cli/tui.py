@@ -1632,6 +1632,21 @@ class GauntletApp(App):
 
     def on_mount(self) -> None:
         self._discover_models()
+        self._check_update()
+
+    @work(thread=True)
+    def _check_update(self) -> None:
+        """Non-blocking update check. Shows notice in status bar if available."""
+        try:
+            from gauntlet.core.update_check import get_update_message
+            msg = get_update_message()
+            if msg:
+                self.app.call_from_thread(
+                    self.query_one("#status-bar", Static).update,
+                    f"[yellow]{msg}[/yellow]",
+                )
+        except Exception:
+            pass
 
     @work(thread=True)
     def _discover_models(self) -> None:

@@ -38,12 +38,22 @@ def get_model_color(index: int) -> str:
 
 
 def print_header() -> None:
-    """Print the Gauntlet header."""
+    """Print the Gauntlet header with optional update notice."""
     header = Text()
     header.append("  GAUNTLET  ", style="bold white on blue")
     header.append("  Behavioral reliability under pressure.", style="dim")
     console.print()
     console.print(header)
+
+    # Non-blocking update check (uses cached result or triggers background fetch)
+    try:
+        from gauntlet.core.update_check import get_update_message
+        msg = get_update_message()
+        if msg:
+            console.print(f"  [yellow]{msg}[/yellow]")
+    except Exception:
+        pass
+
     console.print()
 
 

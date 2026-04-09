@@ -670,6 +670,15 @@ async def websocket_endpoint(ws: WebSocket):
             }
         )
 
+        # Check for updates (non-blocking, cached)
+        try:
+            from gauntlet.core.update_check import get_update_message
+            msg = get_update_message()
+            if msg:
+                await ws.send_json({"type": "update_available", "message": msg})
+        except Exception:
+            pass
+
         # Always send leaderboard data
         lb = Leaderboard()
         await ws.send_json({"type": "leaderboard", "data": lb.to_dict()})
