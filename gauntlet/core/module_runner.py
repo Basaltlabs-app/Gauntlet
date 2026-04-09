@@ -212,4 +212,28 @@ async def run_gauntlet(
         all_results, profile=profile,
         profile_source=profile_source, seed=seed,
     )
+
+    # Push to public test history (non-blocking, non-fatal)
+    try:
+        from gauntlet.mcp.history_store import record_test_result, is_available
+        if is_available():
+            cat_scores = {}
+            for ms in all_scores:
+                if ms.module_name != "CONTAMINATION_CHECK":
+                    cat_scores[ms.module_name] = round(ms.score * 100, 1)
+
+            record_test_result(
+                model_name=model_name,
+                overall_score=final_score.overall_score,
+                trust_score=trust.trust_score,
+                grade=final_score.overall_grade,
+                category_scores=cat_scores,
+                total_probes=final_score.total_probes,
+                passed_probes=final_score.passed_probes,
+                source="cli",
+                quick=quick,
+            )
+    except Exception:
+        pass
+
     return all_results, final_score, trust

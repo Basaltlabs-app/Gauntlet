@@ -265,6 +265,24 @@ def _save_mcp_results(result_dict: dict, quick: bool):
     except Exception as e:
         logger.warning(f"Failed to save benchmark results: {e}")
 
+    # Also push to public test history
+    try:
+        from gauntlet.mcp.history_store import record_test_result, is_available
+        if is_available():
+            record_test_result(
+                model_name=result_dict.get("model", "unknown"),
+                overall_score=result_dict.get("overall_score", 0),
+                trust_score=result_dict.get("trust_score", 0),
+                grade=result_dict.get("grade", "?"),
+                category_scores=result_dict.get("category_scores", {}),
+                total_probes=result_dict.get("total_tests", 0),
+                passed_probes=result_dict.get("total_passed", 0),
+                source="mcp",
+                quick=quick,
+            )
+    except Exception as e:
+        logger.warning(f"Failed to push to test history: {e}")
+
 
 # ---------------------------------------------------------------------------
 # Entry point
