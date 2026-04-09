@@ -33,8 +33,8 @@ from gauntlet.mcp.runner import GauntletRunner
 
 logger = logging.getLogger("gauntlet.mcp.sessions")
 
-_SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-_SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+_SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+_SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
 
 
 def _headers() -> dict[str, str]:
