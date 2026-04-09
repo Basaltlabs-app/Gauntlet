@@ -9,7 +9,20 @@ from pathlib import Path
 from typing import Optional
 
 
-GAUNTLET_DIR = Path.home() / ".gauntlet"
+def _resolve_gauntlet_dir() -> Path:
+    """Resolve the data directory, falling back to /tmp on read-only filesystems."""
+    home_dir = Path.home() / ".gauntlet"
+    try:
+        home_dir.mkdir(parents=True, exist_ok=True)
+        return home_dir
+    except OSError:
+        # Vercel serverless: home is read-only, use /tmp
+        tmp_dir = Path("/tmp/.gauntlet")
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        return tmp_dir
+
+
+GAUNTLET_DIR = _resolve_gauntlet_dir()
 LEADERBOARD_FILE = GAUNTLET_DIR / "leaderboard.json"
 CONFIG_FILE = GAUNTLET_DIR / "config.json"
 
