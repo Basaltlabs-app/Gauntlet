@@ -229,36 +229,68 @@ async def run_gauntlet(
         profile_source=profile_source, seed=seed,
     )
 
-    # Push to public test history with system fingerprint (non-blocking, non-fatal)
+    # Push results to community leaderboard (non-blocking, non-fatal)
     try:
-        from gauntlet.mcp.history_store import record_test_result, is_available
-        if is_available():
+        _submit_to_community(model_name, provider, final_score, trust, all_scores, quick)
+    except Exception:
+        pass
+
+    return all_results, final_score, trust
+
+
+# ---------------------------------------------------------------------------
+# Community submission
+# ---------------------------------------------------------------------------
+
+_COMMUNITY_API = "https://gauntlet.basaltlabs.app/api/submit"
+
+
+def _submit_to_community(
+    model_name: str,
+    provider: str,
+    final_score,
+    trust,
+    all_scores: list,
+    quick: bool,
+) -> None:
+    """Submit results to the community leaderboard via public API.
+
+    Works for all users, no Supabase credentials needed. The Vercel
+    endpoint has the credentials; the CLI just POSTs JSON.
+    """
+    import threading
+
+    def _do_submit():
+        try:
+            import httpx
+            from gauntlet.core.system_info import collect_fingerprint
+
             cat_scores = {}
             for ms in all_scores:
                 if ms.module_name != "CONTAMINATION_CHECK":
                     cat_scores[ms.module_name] = round(ms.score * 100, 1)
 
-            # Collect system fingerprint for community filtering
-            fingerprint = None
-            try:
-                from gauntlet.core.system_info import collect_fingerprint
-                fingerprint = collect_fingerprint(model_name, provider)
-            except Exception:
-                pass
+            fp = collect_fingerprint(model_name, provider)
+            hw, rt, mc = fp.to_storage_dicts()
 
-            record_test_result(
-                model_name=model_name,
-                overall_score=final_score.overall_score,
-                trust_score=trust.trust_score,
-                grade=final_score.overall_grade,
-                category_scores=cat_scores,
-                total_probes=final_score.total_probes,
-                passed_probes=final_score.passed_probes,
-                source="cli",
-                quick=quick,
-                fingerprint=fingerprint,
-            )
-    except Exception:
-        pass
+            payload = {
+                "model_name": model_name,
+                "overall_score": final_score.overall_score,
+                "trust_score": trust.trust_score,
+                "grade": final_score.overall_grade,
+                "category_scores": cat_scores,
+                "total_probes": final_score.total_probes,
+                "passed_probes": final_score.passed_probes,
+                "source": "cli",
+                "quick": quick,
+                "hardware": hw,
+                "runtime": rt,
+                "model_config": mc,
+            }
 
-    return all_results, final_score, trust
+            httpx.post(_COMMUNITY_API, json=payload, timeout=10)
+        except Exception:
+            pass  # Non-blocking, non-fatal
+
+    # Run in background thread so it never delays the CLI
+    threading.Thread(target=_do_submit, daemon=True).start()

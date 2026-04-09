@@ -108,6 +108,72 @@ async def history_handler(request: Request) -> Response:
     )
 
 
+async def submit_handler(request: Request) -> Response:
+    """POST /api/submit -- accept community test results from CLI users.
+
+    This is the public endpoint that pip-installed CLI users POST to.
+    The Vercel function has Supabase credentials; the user does not.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400, headers=CORS_HEADERS)
+
+    # Validate required fields
+    model_name = body.get("model_name")
+    overall_score = body.get("overall_score")
+    if not model_name or overall_score is None:
+        return JSONResponse(
+            {"error": "Missing required fields: model_name, overall_score"},
+            status_code=400, headers=CORS_HEADERS,
+        )
+
+    from gauntlet.mcp.history_store import record_test_result, is_available
+    if not is_available():
+        return JSONResponse(
+            {"error": "Storage not configured"}, status_code=503, headers=CORS_HEADERS,
+        )
+
+    # Reconstruct fingerprint from submitted hardware/runtime/model_config
+    fingerprint = None
+    hw = body.get("hardware")
+    rt = body.get("runtime")
+    mc = body.get("model_config")
+    if hw or rt or mc:
+        from gauntlet.core.system_info import SystemFingerprint
+        fingerprint = SystemFingerprint(
+            cpu_arch=(hw or {}).get("cpu_arch", "unknown"),
+            cpu_cores=(hw or {}).get("cpu_cores", 0),
+            ram_total_gb=(hw or {}).get("ram_total_gb", 0),
+            gpu_class=(hw or {}).get("gpu_class", "unknown"),
+            os_platform=(hw or {}).get("os_platform", "unknown"),
+            python_version=(rt or {}).get("python_version", ""),
+            os_version=(rt or {}).get("os_version", ""),
+            provider=(rt or {}).get("provider", "unknown"),
+            provider_version=(rt or {}).get("provider_version", ""),
+            model_family=(mc or {}).get("family", "unknown"),
+            model_parameter_size=(mc or {}).get("parameter_size", ""),
+            quantization=(mc or {}).get("quantization", "unknown"),
+            model_format=(mc or {}).get("format", "unknown"),
+            model_size_gb=(mc or {}).get("size_gb", 0),
+        )
+
+    record_test_result(
+        model_name=model_name,
+        overall_score=body.get("overall_score", 0),
+        trust_score=body.get("trust_score", 0),
+        grade=body.get("grade", "?"),
+        category_scores=body.get("category_scores", {}),
+        total_probes=body.get("total_probes", 0),
+        passed_probes=body.get("passed_probes", 0),
+        source=body.get("source", "cli"),
+        quick=body.get("quick", False),
+        fingerprint=fingerprint,
+    )
+
+    return JSONResponse({"status": "ok"}, headers=CORS_HEADERS)
+
+
 async def cors_preflight(request: Request) -> Response:
     return Response("", headers=CORS_HEADERS)
 
@@ -125,6 +191,8 @@ class _CombinedApp:
     def __init__(self) -> None:
         self._rest = Starlette(
             routes=[
+                Route("/api/submit", submit_handler, methods=["POST"]),
+                Route("/api/submit", cors_preflight, methods=["OPTIONS"]),
                 Route("/api/leaderboard/history", history_handler, methods=["GET"]),
                 Route("/api/leaderboard/history", cors_preflight, methods=["OPTIONS"]),
                 Route("/api/leaderboard", leaderboard_handler, methods=["GET"]),

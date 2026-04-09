@@ -452,7 +452,7 @@ Gauntlet transmits **benchmark scores and anonymous hardware metadata** to the c
 
 **MCP sessions** use temporary server-side state, automatically deleted on completion or after 1 hour (pg_cron). MCP results are stored separately from community hardware results.
 
-**Opting out:** The leaderboard sync only activates on the hosted Vercel deployment. Local `pip install gauntlet-cli` installations do not have the Supabase credentials and send nothing anywhere.
+**How data reaches the leaderboard:** When you run `gauntlet run` or `gauntlet compare`, your CLI submits the score summary and hardware metadata to `the Gauntlet server` via a background HTTP request. This is non-blocking (never delays your CLI) and non-fatal (if the network is down, your test still completes normally). No Supabase credentials are needed on your machine.
 
 ---
 
