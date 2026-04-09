@@ -778,6 +778,49 @@ def benchmark(
             with console.status("[bold cyan]Running benchmark suite..."):
                 results = asyncio.run(run_benchmark_comparison(models, quick=quick))
 
+    # Submit benchmark results to community leaderboard
+    try:
+        from gauntlet.core.benchmark_history import save_benchmark_run
+        save_benchmark_run([r.to_dict() for r in results], quick=quick)
+    except Exception:
+        pass
+
+    # Submit each model's results to the public API
+    try:
+        import httpx
+        import threading
+        from gauntlet.core.system_info import collect_fingerprint
+
+        def _submit_benchmarks():
+            for r in results:
+                try:
+                    fp = collect_fingerprint(r.model, "ollama")
+                    hw, rt, mc = fp.to_storage_dicts()
+                    httpx.post(
+                        "https://gauntlet.basaltlabs.app/api/submit",
+                        json={
+                            "model_name": r.model,
+                            "overall_score": r.overall_score,
+                            "trust_score": getattr(r, "trust_score", 0),
+                            "grade": getattr(r, "grade", "?"),
+                            "category_scores": getattr(r, "category_scores", {}),
+                            "total_probes": getattr(r, "total_tests", 0),
+                            "passed_probes": getattr(r, "total_passed", 0),
+                            "source": "cli",
+                            "quick": quick,
+                            "hardware": hw,
+                            "runtime": rt,
+                            "model_config": mc,
+                        },
+                        timeout=10,
+                    )
+                except Exception:
+                    pass
+
+        threading.Thread(target=_submit_benchmarks, daemon=True).start()
+    except Exception:
+        pass
+
     if output == "json":
         import json
         console.print_json(json.dumps([r.to_dict() for r in results], indent=2))
