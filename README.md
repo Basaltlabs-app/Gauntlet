@@ -11,7 +11,7 @@
 <p align="center">
   <a href="#tui">TUI</a> &bull;
   <a href="#dashboard">Dashboard</a> &bull;
-  <a href="#public-leaderboard">Leaderboard</a> &bull;
+  <a href="#community-leaderboard">Leaderboard</a> &bull;
   <a href="#behavioral-taxonomy">Taxonomy</a> &bull;
   <a href="#scoring-methodology">Scoring</a> &bull;
   <a href="#evaluation-profiles">Profiles</a> &bull;
@@ -88,23 +88,30 @@ Features:
 - **Quality Radar**: radar chart visualization of quality dimensions
 - **Trust Rankings**: persistent leaderboard across all comparisons
 
-The dashboard runs locally. Benchmark scores (model name, grade, category scores) are shared with the [public leaderboard](https://basaltlabs.app/gauntlet/leaderboard) to build community rankings. No prompts, outputs, or personal data are transmitted. See [Data & Privacy](#data--privacy) for details.
+The dashboard runs locally. Benchmark scores (model name, grade, category scores) are shared with the [public leaderboard](https://basaltlabs.app/gauntlet/leaderboard) to build community rankings. No prompts, outputs, or personal data are transmitted. See [Data & Privacy](#data-and-privacy) for details.
 
-## Public Leaderboard
+## Community Leaderboard
 
 **Live at [basaltlabs.app/gauntlet/leaderboard](https://basaltlabs.app/gauntlet/leaderboard)**
 
-Every `gauntlet run` and `gauntlet compare` contributes to the community leaderboard. Rankings are derived from Elo ratings (pairwise comparisons) and averaged test scores (benchmarks) across all users worldwide.
+Every `gauntlet run` and `gauntlet compare` from every user feeds a shared, community-driven leaderboard. The more people test, the more accurate the rankings become.
 
-- **Elo Rankings**: win/loss/draw records from head-to-head comparisons
-- **Test Stats and Graphs**: animated sparklines showing score trends over time, per-category radar charts, rolling averages
-- **Live Data**: the landing page displays the top 5 models with live sparklines
+**Why this matters:** Most benchmark results come from a single lab on a single hardware configuration. Gauntlet's leaderboard aggregates scores across hundreds of users, diverse hardware (laptops, desktops, cloud GPUs), and different quantization levels. The result is a behavioral reliability profile that reflects how a model actually performs in the real world, not in a controlled environment.
+
+**You don't need to run any tests yourself.** If someone else has already tested the model you're considering, their results are on the leaderboard. Check the scores, compare the category breakdowns, and make an informed decision without running a single probe.
+
+**What's on the leaderboard:**
+- **Elo Rankings**: win/loss/draw records from head-to-head comparisons across all users
+- **Test Stats and Graphs**: animated sparklines showing score trends over time, per-category radar charts, community-averaged scores
+- **Category Breakdowns**: see exactly where each model is strong or weak (e.g. "high sycophancy resistance but poor instruction decay")
+
+**Contributing is automatic.** Every time you run `gauntlet run` or `gauntlet compare`, your model's scores are added to the community pool. No signup, no account, no manual submission.
 
 **API endpoints** (public, CORS-enabled):
 - `GET https://gauntlet.basaltlabs.app/api/leaderboard` -- Elo ratings JSON
 - `GET https://gauntlet.basaltlabs.app/api/leaderboard/history` -- aggregated test stats with sparkline data
 
-Data flows from every source: CLI, TUI, dashboard, and MCP. See [Data & Privacy](#data--privacy) for what is and is not shared.
+See [Data and Privacy](#data-and-privacy) for exactly what is and is not shared.
 
 ---
 
