@@ -132,16 +132,24 @@ Contributing is automatic. Every `gauntlet run` or `gauntlet compare` adds your 
 
 ### API
 
-Public, CORS-enabled endpoints for building your own tools on top of the community data:
+Read-only, CORS-enabled endpoints at `https://gauntlet.basaltlabs.app` for building your own tools on top of the community data:
 
-```
-GET /api/leaderboard                              -- Elo ratings
-GET /api/leaderboard/history                       -- aggregated stats + sparklines
-GET /api/leaderboard/history?gpu_class=apple_silicon  -- filtered by GPU
-GET /api/leaderboard/history?quantization=Q4       -- filtered by quantization
-GET /api/leaderboard/history?source=mcp            -- MCP self-tests only
-GET /api/leaderboard/history?exclude_source=mcp    -- community only
-```
+| Endpoint | Description |
+|---|---|
+| `GET /api/leaderboard` | Elo ratings from head-to-head comparisons |
+| `GET /api/leaderboard/history` | Aggregated test stats with sparkline data |
+
+**Filter parameters** for `/api/leaderboard/history`:
+
+| Parameter | Example Values |
+|---|---|
+| `gpu_class` | apple_silicon, nvidia, amd, none |
+| `quantization` | Q4, Q8, fp16 |
+| `provider` | ollama, openai, anthropic |
+| `os_platform` | darwin, linux, windows |
+| `source` | mcp (MCP self-tests only) |
+| `exclude_source` | mcp (community hardware only) |
+| `min_tests` | 3 (minimum submissions to include) |
 
 See [Data and Privacy](#data-and-privacy) for exactly what is and is not shared.
 

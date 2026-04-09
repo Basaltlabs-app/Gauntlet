@@ -111,8 +111,8 @@ async def history_handler(request: Request) -> Response:
 async def submit_handler(request: Request) -> Response:
     """POST /api/submit -- accept community test results from CLI users.
 
-    This is the public endpoint that pip-installed CLI users POST to.
-    The Vercel function has Supabase credentials; the user does not.
+    Internal API used by the gauntlet CLI. Not documented publicly.
+    Basic validation prevents obviously fake submissions.
     """
     try:
         body = await request.json()
@@ -127,6 +127,29 @@ async def submit_handler(request: Request) -> Response:
             {"error": "Missing required fields: model_name, overall_score"},
             status_code=400, headers=CORS_HEADERS,
         )
+
+    # Basic anti-spam validation
+    # 1. Score range check
+    if not isinstance(overall_score, (int, float)) or overall_score < 0 or overall_score > 100:
+        return JSONResponse({"error": "Invalid score range"}, status_code=400, headers=CORS_HEADERS)
+
+    # 2. Model name length check (prevents junk data)
+    if len(model_name) > 100 or len(model_name) < 2:
+        return JSONResponse({"error": "Invalid model name"}, status_code=400, headers=CORS_HEADERS)
+
+    # 3. Must have at least some category scores (real runs always have these)
+    cat_scores = body.get("category_scores", {})
+    if not isinstance(cat_scores, dict) or len(cat_scores) < 2:
+        return JSONResponse({"error": "Insufficient category data"}, status_code=400, headers=CORS_HEADERS)
+
+    # 4. Probe count sanity (real runs have 4+ probes even in quick mode)
+    total_probes = body.get("total_probes", 0)
+    if not isinstance(total_probes, int) or total_probes < 4:
+        return JSONResponse({"error": "Invalid probe count"}, status_code=400, headers=CORS_HEADERS)
+
+    # 5. Must have hardware fingerprint (real CLI always sends this)
+    if not body.get("hardware") and not body.get("runtime"):
+        return JSONResponse({"error": "Missing system fingerprint"}, status_code=400, headers=CORS_HEADERS)
 
     from gauntlet.mcp.history_store import record_test_result, is_available
     if not is_available():
