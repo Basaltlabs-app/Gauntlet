@@ -193,10 +193,11 @@ class GauntletRunner:
         is_followup = step_idx > 0
 
         # Compact message format to minimize token overhead
-        parts = [f"[{self.current_test_idx}/{self.total_tests}]"]
+        header = f"[{self.current_test_idx}/{self.total_tests}]"
         if is_followup:
-            parts.append(f"(follow-up {step_idx + 1}/{total_steps})")
-        parts.append(f"\n\nPROMPT: {prompt_text}")
+            header += f" (follow-up {step_idx + 1}/{total_steps})"
+
+        message = f"{header}\n\nPROMPT: {prompt_text}"
 
         return {
             "status": "prompt",
@@ -207,7 +208,7 @@ class GauntletRunner:
             "prompt": prompt_text,
             "step": step_idx + 1,
             "total_steps": total_steps,
-            "message": " ".join(parts[:2]) + parts[2],
+            "message": message,
         }
 
     # ------------------------------------------------------------------
