@@ -93,7 +93,7 @@ class Leaderboard:
                 self.ratings = {}
 
     def _save(self) -> None:
-        """Save leaderboard to disk."""
+        """Save leaderboard to disk and sync to Supabase if available."""
         ensure_gauntlet_dir()
         data = {
             "models": [r.to_dict() for r in self.sorted_ratings()],
@@ -101,6 +101,14 @@ class Leaderboard:
         }
         with open(LEADERBOARD_FILE, "w") as f:
             json.dump(data, f, indent=2)
+
+        # Sync to public Supabase leaderboard (non-blocking, non-fatal)
+        try:
+            from gauntlet.mcp.leaderboard_store import sync_from_local, is_available
+            if is_available():
+                sync_from_local(data)
+        except Exception:
+            pass  # Don't break local leaderboard if Supabase sync fails
 
     def _get_or_create(self, model_name: str) -> ModelRating:
         """Get existing rating or create new one."""

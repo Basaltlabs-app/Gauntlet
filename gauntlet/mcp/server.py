@@ -221,11 +221,20 @@ def gauntlet_leaderboard() -> str:
 
     Shows trust rankings built from all comparisons and benchmarks across sessions.
     """
-    from gauntlet.core.leaderboard import Leaderboard
+    # Try Supabase first (public leaderboard), fall back to local file
+    models = []
+    try:
+        from gauntlet.mcp.leaderboard_store import get_leaderboard, is_available
+        if is_available():
+            models = get_leaderboard()
+    except Exception:
+        pass
 
-    lb = Leaderboard()
-    data = lb.to_dict()
-    models = data.get("models", [])
+    if not models:
+        from gauntlet.core.leaderboard import Leaderboard
+        lb = Leaderboard()
+        data = lb.to_dict()
+        models = data.get("models", [])
 
     if not models:
         return "No leaderboard data yet. Run benchmarks or comparisons to build rankings."
