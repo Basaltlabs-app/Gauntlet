@@ -15,10 +15,11 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
 from mcp.server.fastmcp import FastMCP
 
@@ -80,7 +81,7 @@ mcp = FastMCP(
 
 @mcp.tool()
 def gauntlet_run(
-    response: Optional[str] = None,
+    response: Optional[Any] = None,
     session_id: Optional[str] = None,
     quick: bool = False,
     client_name: str = "unknown",
@@ -112,6 +113,12 @@ def gauntlet_run(
     Returns:
         The next prompt to answer, a test result, or the final report.
     """
+    # Coerce response to string — MCP transport may deserialize JSON strings
+    # into dicts/lists before they reach us (e.g. AI sends '{"name": "X"}'
+    # and the transport parses it into a dict)
+    if response is not None and not isinstance(response, str):
+        response = json.dumps(response) if isinstance(response, (dict, list)) else str(response)
+
     # Starting a new run
     if response is None:
         sid = str(uuid.uuid4())[:8]
