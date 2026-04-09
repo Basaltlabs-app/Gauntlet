@@ -229,7 +229,7 @@ async def run_gauntlet(
         profile_source=profile_source, seed=seed,
     )
 
-    # Push to public test history (non-blocking, non-fatal)
+    # Push to public test history with system fingerprint (non-blocking, non-fatal)
     try:
         from gauntlet.mcp.history_store import record_test_result, is_available
         if is_available():
@@ -237,6 +237,14 @@ async def run_gauntlet(
             for ms in all_scores:
                 if ms.module_name != "CONTAMINATION_CHECK":
                     cat_scores[ms.module_name] = round(ms.score * 100, 1)
+
+            # Collect system fingerprint for community filtering
+            fingerprint = None
+            try:
+                from gauntlet.core.system_info import collect_fingerprint
+                fingerprint = collect_fingerprint(model_name, provider)
+            except Exception:
+                pass
 
             record_test_result(
                 model_name=model_name,
@@ -248,6 +256,7 @@ async def run_gauntlet(
                 passed_probes=final_score.passed_probes,
                 source="cli",
                 quick=quick,
+                fingerprint=fingerprint,
             )
     except Exception:
         pass

@@ -28,9 +28,12 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import httpx
+
+if TYPE_CHECKING:
+    from gauntlet.core.system_info import SystemFingerprint
 
 logger = logging.getLogger("gauntlet.mcp.history")
 
@@ -65,8 +68,15 @@ def record_test_result(
     passed_probes: int,
     source: str = "cli",
     quick: bool = False,
+    fingerprint: Optional["SystemFingerprint"] = None,
 ) -> None:
-    """Record a single model's test result to the history table."""
+    """Record a single model's test result to the history table.
+
+    Args:
+        fingerprint: Optional SystemFingerprint with hardware/runtime/model metadata.
+            When provided, stored as hardware, runtime, and model_config JSONB columns
+            for community filtering (e.g. "show results from Apple Silicon with Q4").
+    """
     if not is_available():
         return
 
@@ -83,6 +93,13 @@ def record_test_result(
             "source": source,
             "quick": quick,
         }
+
+        # Attach system fingerprint for community filtering
+        if fingerprint is not None:
+            hw, rt, mc = fingerprint.to_storage_dicts()
+            payload["hardware"] = hw
+            payload["runtime"] = rt
+            payload["model_config"] = mc
 
         resp = httpx.post(
             _table_url(),
@@ -109,7 +126,7 @@ def get_model_history(
 
     try:
         params: dict = {
-            "select": "model_name,timestamp,overall_score,trust_score,grade,category_scores,total_probes,passed_probes,source,quick",
+            "select": "model_name,timestamp,overall_score,trust_score,grade,category_scores,total_probes,passed_probes,source,quick,hardware,runtime,model_config",
             "order": "timestamp.desc",
             "limit": str(limit),
         }
@@ -129,17 +146,81 @@ def get_model_history(
         return []
 
 
-def get_aggregated_stats() -> list[dict]:
+def _get_filtered_history(
+    gpu_class: Optional[str] = None,
+    quantization: Optional[str] = None,
+    parameter_size: Optional[str] = None,
+    provider: Optional[str] = None,
+    model_family: Optional[str] = None,
+    os_platform: Optional[str] = None,
+    limit: int = 500,
+) -> list[dict]:
+    """Fetch history rows with optional JSONB filters."""
+    if not is_available():
+        return []
+
+    try:
+        params: dict = {
+            "select": "model_name,timestamp,overall_score,trust_score,grade,category_scores,total_probes,passed_probes,source,quick,hardware,runtime,model_config",
+            "order": "timestamp.desc",
+            "limit": str(limit),
+        }
+
+        # JSONB arrow filters (Supabase PostgREST syntax)
+        if gpu_class:
+            params["hardware->>gpu_class"] = f"eq.{gpu_class}"
+        if quantization:
+            params["model_config->>quantization"] = f"ilike.*{quantization}*"
+        if parameter_size:
+            params["model_config->>parameter_size"] = f"ilike.*{parameter_size}*"
+        if provider:
+            params["runtime->>provider"] = f"eq.{provider}"
+        if model_family:
+            params["model_config->>family"] = f"ilike.*{model_family}*"
+        if os_platform:
+            params["hardware->>os_platform"] = f"eq.{os_platform}"
+
+        resp = httpx.get(
+            _table_url(),
+            headers={**_headers(), "Prefer": "return=representation"},
+            params=params,
+            timeout=5,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        logger.warning(f"Failed to fetch filtered history: {e}")
+        return []
+
+
+def get_aggregated_stats(
+    gpu_class: Optional[str] = None,
+    quantization: Optional[str] = None,
+    parameter_size: Optional[str] = None,
+    provider: Optional[str] = None,
+    model_family: Optional[str] = None,
+    os_platform: Optional[str] = None,
+    min_tests: int = 1,
+) -> list[dict]:
     """Get aggregated stats per model for the public leaderboard graphs.
 
+    Supports filtering by hardware, quantization, provider, etc.
     Returns per-model: avg scores, test count, latest grade, category averages.
     """
     if not is_available():
         return []
 
     try:
-        # Fetch all history (limited to last 500 entries for performance)
-        rows = get_model_history(limit=500)
+        # Fetch history with optional filters
+        rows = _get_filtered_history(
+            gpu_class=gpu_class,
+            quantization=quantization,
+            parameter_size=parameter_size,
+            provider=provider,
+            model_family=model_family,
+            os_platform=os_platform,
+            limit=500,
+        )
         if not rows:
             return []
 
@@ -158,6 +239,10 @@ def get_aggregated_stats() -> list[dict]:
                     "test_count": 0,
                     "latest_timestamp": row["timestamp"],
                     "history": [],
+                    "gpu_classes": set(),
+                    "quantizations": set(),
+                    "platforms": set(),
+                    "providers": set(),
                 }
 
             m = models[name]
@@ -176,6 +261,19 @@ def get_aggregated_stats() -> list[dict]:
                     m["category_totals"][cat] = m["category_totals"].get(cat, 0) + score
                     m["category_counts"][cat] = m["category_counts"].get(cat, 0) + 1
 
+            # Collect hardware diversity metadata
+            hw = row.get("hardware") or {}
+            rt = row.get("runtime") or {}
+            mc = row.get("model_config") or {}
+            if hw.get("gpu_class"):
+                m["gpu_classes"].add(hw["gpu_class"])
+            if mc.get("quantization"):
+                m["quantizations"].add(mc["quantization"])
+            if hw.get("os_platform"):
+                m["platforms"].add(hw["os_platform"])
+            if rt.get("provider"):
+                m["providers"].add(rt["provider"])
+
             # Keep last 20 data points for sparkline
             if len(m["history"]) < 20:
                 m["history"].append({
@@ -187,6 +285,9 @@ def get_aggregated_stats() -> list[dict]:
         # Build output
         result = []
         for name, m in models.items():
+            if m["test_count"] < min_tests:
+                continue
+
             avg_score = sum(m["scores"]) / len(m["scores"]) if m["scores"] else 0
             avg_trust = sum(m["trust_scores"]) / len(m["trust_scores"]) if m["trust_scores"] else 0
 
@@ -203,8 +304,15 @@ def get_aggregated_stats() -> list[dict]:
                 "latest_grade": m["grades"][0] if m["grades"] else "?",
                 "test_count": m["test_count"],
                 "category_averages": cat_avgs,
-                "history": list(reversed(m["history"])),  # chronological order
+                "history": list(reversed(m["history"])),
                 "latest_timestamp": m["latest_timestamp"],
+                # Hardware diversity: how many different setups tested this model
+                "tested_on": {
+                    "gpu_classes": sorted(m["gpu_classes"]),
+                    "quantizations": sorted(m["quantizations"]),
+                    "platforms": sorted(m["platforms"]),
+                    "providers": sorted(m["providers"]),
+                },
             })
 
         # Sort by avg_score descending

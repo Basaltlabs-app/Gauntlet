@@ -271,6 +271,16 @@ def _save_mcp_results(result_dict: dict, quick: bool):
     try:
         from gauntlet.mcp.history_store import record_test_result, is_available
         if is_available():
+            # MCP runs on Vercel serverless, limited fingerprint (no local hardware)
+            from gauntlet.core.system_info import SystemFingerprint
+            mcp_fingerprint = SystemFingerprint(
+                provider="mcp",
+                model_family=result_dict.get("model", "unknown").split(":")[0],
+                quantization="cloud",
+                model_format="api",
+                os_platform="serverless",
+            )
+
             record_test_result(
                 model_name=result_dict.get("model", "unknown"),
                 overall_score=result_dict.get("overall_score", 0),
@@ -281,6 +291,7 @@ def _save_mcp_results(result_dict: dict, quick: bool):
                 passed_probes=result_dict.get("total_passed", 0),
                 source="mcp",
                 quick=quick,
+                fingerprint=mcp_fingerprint,
             )
     except Exception as e:
         logger.warning(f"Failed to push to test history: {e}")

@@ -52,7 +52,17 @@ async def leaderboard_handler(request: Request) -> Response:
 
 
 async def history_handler(request: Request) -> Response:
-    """GET /api/leaderboard/history — aggregated stats + sparkline data for graphs."""
+    """GET /api/leaderboard/history — aggregated stats with optional filters.
+
+    Query params:
+        gpu_class: apple_silicon, nvidia, amd, none
+        quantization: Q4_K_M, Q8_0, fp16, etc.
+        parameter_size: 7b, 14b, 35b
+        provider: ollama, openai, anthropic
+        model_family: llama, qwen, gemma
+        os_platform: darwin, linux, windows
+        min_tests: minimum test count to include (default 1)
+    """
     from gauntlet.mcp.history_store import get_aggregated_stats, is_available
 
     if not is_available():
@@ -61,9 +71,37 @@ async def history_handler(request: Request) -> Response:
             headers=CORS_HEADERS,
         )
 
-    stats = get_aggregated_stats()
+    # Extract filter params from query string
+    params = request.query_params
+    min_tests = 1
+    try:
+        min_tests = int(params.get("min_tests", "1"))
+    except ValueError:
+        pass
+
+    stats = get_aggregated_stats(
+        gpu_class=params.get("gpu_class"),
+        quantization=params.get("quantization"),
+        parameter_size=params.get("parameter_size"),
+        provider=params.get("provider"),
+        model_family=params.get("model_family"),
+        os_platform=params.get("os_platform"),
+        min_tests=min_tests,
+    )
+
+    # Build active filters for client display
+    active_filters = {
+        k: v for k, v in params.items()
+        if k in ("gpu_class", "quantization", "parameter_size", "provider", "model_family", "os_platform", "min_tests")
+    }
+
     return JSONResponse(
-        {"models": stats, "total": len(stats), "updated_at": datetime.now(timezone.utc).isoformat()},
+        {
+            "models": stats,
+            "total": len(stats),
+            "filters": active_filters,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
         headers=CORS_HEADERS,
     )
 
