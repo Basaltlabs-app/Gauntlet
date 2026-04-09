@@ -785,19 +785,31 @@ async def websocket_endpoint(ws: WebSocket):
             models=all_metrics,
         )
 
+        # Classify prompt for domain-aware evaluation
+        from gauntlet.core.prompt_classifier import classify_prompt_detailed
+        from gauntlet.core.recommendation import generate_recommendation
+        from gauntlet.core.metrics import compute_composite_scores, weights_for_category
+
+        classification = classify_prompt_detailed(_comparison_state["prompt"])
+
         # Judge
         has_quality = False
         if not _comparison_state["no_judge"] and len(all_metrics) > 1:
             await ws.send_json({"type": "judging"})
             result = await judge_comparison(
-                result, judge_model=_comparison_state["judge_model"]
+                result, judge_model=_comparison_state["judge_model"],
+                classification=classification,
             )
             has_quality = True
 
-        # Compute composite scores and winner
-        from gauntlet.core.metrics import compute_composite_scores
-        result.scoring = compute_composite_scores(result, has_quality=has_quality)
+        # Compute composite scores with category-specific weights
+        category_weights = weights_for_category(classification.subcategory)
+        result.scoring = compute_composite_scores(
+            result, weights=category_weights, has_quality=has_quality,
+        )
         result.winner = result.scoring.winner if result.scoring else None
+        result.classification = classification
+        result.recommendation = generate_recommendation(result)
 
         # Update leaderboard
         if len(all_metrics) > 1:

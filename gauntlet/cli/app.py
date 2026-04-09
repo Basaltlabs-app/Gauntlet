@@ -434,12 +434,26 @@ async def _run_cli(
     """Run comparison in CLI mode."""
     from gauntlet.core.judge import judge_comparison
     from gauntlet.core.leaderboard import Leaderboard
+    from gauntlet.core.prompt_classifier import classify_prompt_detailed
+    from gauntlet.core.recommendation import generate_recommendation
     from gauntlet.core.runner import run_comparison, run_single_model
-    from gauntlet.core.metrics import ComparisonResult, compute_composite_scores, ScoreWeights
+    from gauntlet.core.metrics import (
+        ComparisonResult, compute_composite_scores, ScoreWeights, weights_for_category,
+    )
     from datetime import datetime, timezone
 
     print_header()
     print_comparing(model_specs, prompt)
+
+    # Classify prompt for domain-aware evaluation
+    classification = classify_prompt_detailed(prompt)
+    if classification.subcategory:
+        console.print(
+            f"[dim]Detected:[/dim] [cyan]{classification.subcategory_label}[/cyan] task"
+            f"  [dim](confidence: {classification.confidence:.0%},"
+            f" signals: {', '.join(classification.matched_signals[:4])})[/dim]"
+        )
+        console.print()
 
     if sequential:
         console.print("[dim]Sequential mode (low memory)[/dim]")
@@ -482,15 +496,27 @@ async def _run_cli(
                 image_path=image, on_token=on_token, sequential=False,
             )
 
-    # Judge quality (optional)
+    # Judge quality (optional) -- with domain-aware criteria when classified
     if not no_judge and len(model_specs) > 1:
-        with console.status("[bold cyan]Judging quality..."):
-            result = await judge_comparison(result, judge_model=judge_model)
+        judge_label = "Judging quality"
+        if classification.subcategory:
+            judge_label = f"Judging {classification.subcategory_label} quality"
+        with console.status(f"[bold cyan]{judge_label}..."):
+            result = await judge_comparison(
+                result, judge_model=judge_model, classification=classification,
+            )
 
-    # Compute composite scores and determine winner
+    # Compute composite scores with category-specific weights
     has_quality = not no_judge and len(model_specs) > 1
-    result.scoring = compute_composite_scores(result, has_quality=has_quality)
+    category_weights = weights_for_category(classification.subcategory)
+    result.scoring = compute_composite_scores(
+        result, weights=category_weights, has_quality=has_quality,
+    )
     result.winner = result.scoring.winner if result.scoring else None
+    result.classification = classification
+
+    # Generate actionable recommendation
+    result.recommendation = generate_recommendation(result)
 
     # Update leaderboard
     if len(model_specs) > 1:
@@ -1064,6 +1090,290 @@ def mcp(
     """
     from gauntlet.mcp.server import run_server
     run_server(transport=transport, host=host, port=port)
+
+
+# ---------------------------------------------------------------------------
+# gauntlet ci  -- CI/CD pipeline integration
+# ---------------------------------------------------------------------------
+
+@app.command()
+def ci(
+    model: str = typer.Argument(..., help="Model to benchmark (e.g. ollama:llama3, ollama/qwen2.5:14b)"),
+    threshold: int = typer.Option(70, "--threshold", "-t", help="Minimum Gauntlet score to pass (0-100)"),
+    trust_threshold: int = typer.Option(60, "--trust-threshold", help="Minimum trust score to pass (0-100)"),
+    format: str = typer.Option("json", "--format", "-f", help="Output format: json, github, summary"),
+    quick: bool = typer.Option(False, "--quick", "-q", help="Quick suite (fewer probes per module)"),
+    fail_on_critical: bool = typer.Option(
+        True, "--fail-on-critical/--no-fail-on-critical",
+        help="Exit 1 on critical safety failures even if scores pass",
+    ),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Write report to file instead of stdout"),
+    profile: Optional[str] = typer.Option(
+        None, "--profile", "-p",
+        help="Scoring profile: assistant, coder, researcher, raw (default: assistant)",
+    ),
+    timeout: int = typer.Option(
+        600, "--timeout",
+        help="Per-probe timeout in seconds",
+    ),
+    seed: Optional[int] = typer.Option(
+        None, "--seed",
+        help="Seed for parameterized probes (reproducible runs)",
+    ),
+    no_canary: bool = typer.Option(
+        False, "--no-canary",
+        help="Skip contamination check",
+    ),
+) -> None:
+    """Run Gauntlet in CI/CD mode with structured output and exit codes.
+
+    Designed for deployment pipelines: runs benchmarks, outputs structured
+    results, and exits with code 0 (pass) or 1 (fail) based on thresholds.
+
+    Requires a running Ollama server (or compatible provider).
+
+    Examples:
+        gauntlet ci ollama/qwen2.5:14b
+        gauntlet ci ollama/qwen2.5:14b --threshold 80 --format github
+        gauntlet ci ollama/qwen2.5:14b --quick --format summary
+        gauntlet ci ollama/llama3 --trust-threshold 70 --output report.json
+    """
+    import json
+    import sys
+    from datetime import datetime, timezone
+
+    from gauntlet import __version__
+    from gauntlet.core.module_runner import run_gauntlet
+    from gauntlet.core.report import MODULE_LABELS
+
+    # Parse model spec: support both "ollama/model" and "ollama:model" syntax
+    if "/" in model:
+        provider, model_name = model.split("/", 1)
+    elif ":" in model and not model.startswith("ollama"):
+        # Handle "provider:model" but not "model:tag" (e.g. "qwen2.5:14b")
+        provider, model_name = model.split(":", 1)
+    else:
+        provider = "ollama"
+        model_name = model
+
+    effective_profile = profile or "assistant"
+    profile_source = "explicit" if profile else "default"
+
+    # Suppress Rich output in CI mode: write to stderr for progress
+    def on_progress(mod_name: str, current: int, total: int, status: str):
+        if total > 0:
+            print(f"[gauntlet] {mod_name} [{current}/{total}] {status}", file=sys.stderr)
+
+    # Run the benchmark
+    try:
+        results, score, trust = asyncio.run(run_gauntlet(
+            model_name=model_name,
+            provider=provider,
+            profile=effective_profile,
+            quick=quick,
+            config={"timeout_s": float(timeout)},
+            on_progress=on_progress,
+            seed=seed,
+            profile_source=profile_source,
+            skip_canary=no_canary,
+        ))
+    except Exception as e:
+        # Connection errors, timeouts, etc.
+        error_msg = str(e)
+        if format == "github":
+            print(f"::error title=Gauntlet Error::{error_msg}")
+        elif format == "summary":
+            print(f"FAIL: Gauntlet error: {error_msg}")
+        else:
+            error_data = {
+                "model": model,
+                "error": error_msg,
+                "passed": False,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "version": __version__,
+            }
+            _ci_write_output(json.dumps(error_data, indent=2), output)
+        raise typer.Exit(1)
+
+    # Build results
+    gauntlet_pct = round(score.overall_score * 100, 1)
+    trust_score_val = trust.score
+    has_critical = trust.has_critical_safety
+
+    score_passed = gauntlet_pct >= threshold
+    trust_passed = trust_score_val >= trust_threshold
+    critical_ok = not (fail_on_critical and has_critical)
+    passed = score_passed and trust_passed and critical_ok
+
+    # Build category breakdown
+    categories = {}
+    for ms in score.module_scores:
+        label = MODULE_LABELS.get(ms.module_name, ms.module_name)
+        categories[label] = {
+            "score": round(ms.score * 100, 1),
+            "grade": ms.grade,
+            "passed": ms.passed,
+            "total": ms.total,
+            "critical_failures": ms.critical_failures,
+        }
+
+    # Build failed probes list
+    failed_probes = []
+    for result in results:
+        label = MODULE_LABELS.get(result.module_name, result.module_name)
+        for pr in result.probe_results:
+            if not pr.passed:
+                failed_probes.append({
+                    "module": label,
+                    "probe": pr.probe_name,
+                    "severity": pr.severity.value,
+                    "reason": pr.reason,
+                })
+
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    # Format and output
+    if format == "github":
+        _ci_output_github(
+            model, gauntlet_pct, score.overall_grade, trust_score_val,
+            has_critical, failed_probes, passed,
+        )
+    elif format == "summary":
+        _ci_output_summary(
+            model, gauntlet_pct, score.overall_grade, trust_score_val,
+            passed, has_critical, threshold, trust_threshold,
+        )
+    else:
+        # JSON (default)
+        report = {
+            "model": model,
+            "gauntlet_score": gauntlet_pct,
+            "trust_score": trust_score_val,
+            "grade": score.overall_grade,
+            "passed": passed,
+            "has_critical_failure": has_critical,
+            "threshold": threshold,
+            "trust_threshold": trust_threshold,
+            "profile": effective_profile,
+            "categories": categories,
+            "failed_probes": failed_probes,
+            "timestamp": timestamp,
+            "version": __version__,
+        }
+        _ci_write_output(json.dumps(report, indent=2), output)
+
+    raise typer.Exit(0 if passed else 1)
+
+
+def _ci_write_output(text: str, output_path: Optional[str]) -> None:
+    """Write CI output to file or stdout."""
+    if output_path:
+        with open(output_path, "w") as f:
+            f.write(text)
+            f.write("\n")
+        import sys
+        print(f"[gauntlet] Report written to {output_path}", file=sys.stderr)
+    else:
+        print(text)
+
+
+def _ci_output_github(
+    model: str,
+    gauntlet_pct: float,
+    grade: str,
+    trust_score: int,
+    has_critical: bool,
+    failed_probes: list[dict],
+    passed: bool,
+) -> None:
+    """Output GitHub Actions workflow commands."""
+    # Overall results as notices
+    print(f"::notice title=Gauntlet Score::{gauntlet_pct}% (Grade: {grade})")
+    print(f"::notice title=Trust Score::{trust_score}/100")
+    print(f"::notice title=Model::{model}")
+
+    # Critical failures as errors
+    critical_probes = [p for p in failed_probes if p["severity"] == "critical"]
+    for probe in critical_probes:
+        print(f"::error title=CRITICAL FAILURE::{probe['module']}: {probe['probe']} - {probe['reason']}")
+
+    # High-severity failures as warnings
+    high_probes = [p for p in failed_probes if p["severity"] == "high"]
+    for probe in high_probes:
+        print(f"::warning title=High Severity Failure::{probe['module']}: {probe['probe']} - {probe['reason']}")
+
+    # Medium/low as notices (only first 10 to avoid noise)
+    other_probes = [p for p in failed_probes if p["severity"] not in ("critical", "high")]
+    for probe in other_probes[:10]:
+        print(f"::notice title=Failed Probe::{probe['module']}: {probe['probe']} - {probe['reason']}")
+
+    # Overall pass/fail
+    if passed:
+        print(f"::notice title=Gauntlet Result::PASSED")
+    else:
+        print(f"::error title=Gauntlet Result::FAILED")
+
+
+def _ci_output_summary(
+    model: str,
+    gauntlet_pct: float,
+    grade: str,
+    trust_score: int,
+    passed: bool,
+    has_critical: bool,
+    threshold: int,
+    trust_threshold: int,
+) -> None:
+    """Output a human-readable one-liner for CI logs."""
+    status = "PASS" if passed else "FAIL"
+    critical_flag = " [CRITICAL SAFETY FAILURE]" if has_critical else ""
+    print(
+        f"Gauntlet {status}: {model} scored {gauntlet_pct}% (Grade: {grade}), "
+        f"Trust: {trust_score}/100 "
+        f"(thresholds: score>={threshold}, trust>={trust_threshold})"
+        f"{critical_flag}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# gauntlet badge  -- generate shields.io badge URL
+# ---------------------------------------------------------------------------
+
+@app.command()
+def badge(
+    score: float = typer.Option(..., "--score", "-s", help="Gauntlet score (0-100)"),
+    grade: str = typer.Option(..., "--grade", "-g", help="Letter grade (A, B, C, D, F)"),
+    label: str = typer.Option("Gauntlet", "--label", "-l", help="Badge label text"),
+) -> None:
+    """Generate a shields.io badge URL for your README.
+
+    Use after a CI run to embed results in your project documentation.
+
+    Examples:
+        gauntlet badge --score 85.2 --grade B
+        gauntlet badge --score 92.0 --grade A --label "LLM Reliability"
+    """
+    grade_colors = {
+        "A": "brightgreen",
+        "B": "green",
+        "C": "yellow",
+        "D": "orange",
+        "F": "red",
+    }
+    color = grade_colors.get(grade.upper(), "lightgrey")
+    badge_grade = grade.upper()
+
+    # URL-encode: space -> %20, % -> %25, ( -> %28, ) -> %29
+    message = f"{badge_grade}%20({score}%25)"
+    encoded_label = label.replace(" ", "%20").replace("-", "--")
+    url = f"https://img.shields.io/badge/{encoded_label}-{message}-{color}"
+
+    print(url)
+
+    # Also output Markdown snippet for convenience
+    markdown = f"[![{label}]({url})](https://github.com/Basaltlabs-app/Gauntlet)"
+    import sys
+    print(f"\nMarkdown: {markdown}", file=sys.stderr)
 
 
 def entry() -> None:

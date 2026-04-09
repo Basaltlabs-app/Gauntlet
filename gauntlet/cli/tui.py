@@ -699,8 +699,12 @@ class RunScreen(Screen):
         import asyncio
         from gauntlet.core.runner import run_comparison, run_single_model
         from gauntlet.core.judge import judge_comparison
-        from gauntlet.core.metrics import ComparisonResult, compute_composite_scores, ScoreWeights
+        from gauntlet.core.metrics import (
+            ComparisonResult, compute_composite_scores, ScoreWeights, weights_for_category,
+        )
         from gauntlet.core.leaderboard import Leaderboard
+        from gauntlet.core.prompt_classifier import classify_prompt_detailed
+        from gauntlet.core.recommendation import generate_recommendation
         from datetime import datetime, timezone
 
         def on_token(model: str, text: str, metrics):
@@ -750,15 +754,28 @@ class RunScreen(Screen):
                     }
                 self.app.call_from_thread(self._refresh_progress, prompt)
 
+            # Classify prompt for domain-aware evaluation
+            classification = classify_prompt_detailed(prompt)
+
             if not self._no_judge and len(specs) > 1:
+                judge_label = "Judging quality"
+                if classification.subcategory:
+                    judge_label = f"Judging {classification.subcategory_label} quality"
                 self.app.call_from_thread(
-                    self._update_footer, "  Judging quality..."
+                    self._update_footer, f"  {judge_label}..."
                 )
-                result = asyncio.run(judge_comparison(result, judge_model="auto"))
+                result = asyncio.run(judge_comparison(
+                    result, judge_model="auto", classification=classification,
+                ))
 
             has_quality = not self._no_judge and len(specs) > 1
-            result.scoring = compute_composite_scores(result, has_quality=has_quality)
+            category_weights = weights_for_category(classification.subcategory)
+            result.scoring = compute_composite_scores(
+                result, weights=category_weights, has_quality=has_quality,
+            )
             result.winner = result.scoring.winner if result.scoring else None
+            result.classification = classification
+            result.recommendation = generate_recommendation(result)
 
             if len(specs) > 1:
                 lb = Leaderboard()

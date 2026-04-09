@@ -158,7 +158,7 @@ def print_results(result: ComparisonResult) -> None:
 
     console.print(table)
 
-    # Quality breakdown if available
+    # Quality breakdown if available -- dynamic columns for domain-specific criteria
     scored_models = [m for m in result.models if m.quality_scores]
     if scored_models:
         console.print()
@@ -169,26 +169,56 @@ def print_results(result: ComparisonResult) -> None:
             border_style="dim",
         )
         qtable.add_column("Model", style="bold")
-        qtable.add_column("Correctness", justify="center")
-        qtable.add_column("Completeness", justify="center")
-        qtable.add_column("Clarity", justify="center")
-        qtable.add_column("Code Quality", justify="center")
+
+        # Discover column names from the first scored model's quality_scores keys
+        dim_names = list(scored_models[0].quality_scores.keys())
+        for dim_name in dim_names:
+            qtable.add_column(dim_name, justify="center")
 
         for i, m in enumerate(scored_models):
             color = get_model_color(i)
             s = m.quality_scores
-            qtable.add_row(
-                f"[{color}]{m.model}[/{color}]",
-                _score_cell(s.get("correctness", 0)),
-                _score_cell(s.get("completeness", 0)),
-                _score_cell(s.get("clarity", 0)),
-                _score_cell(s.get("code_quality", 0)),
-            )
+            row = [f"[{color}]{m.model}[/{color}]"]
+            for dim_name in dim_names:
+                row.append(_score_cell(s.get(dim_name, 0)))
+            qtable.add_row(*row)
+
         console.print(qtable)
+
+        # Show specific issues if any model has them
+        models_with_issues = [
+            m for m in result.models
+            if hasattr(m, "specific_issues") and m.specific_issues
+        ]
+        if models_with_issues:
+            console.print()
+            for m in models_with_issues:
+                color = get_model_color(
+                    next(
+                        (i for i, rm in enumerate(result.models) if rm.model == m.model),
+                        0,
+                    )
+                )
+                issues_text = "; ".join(m.specific_issues[:5])
+                console.print(
+                    f"  [{color}]{m.model}[/{color}]"
+                    f"  [yellow]Issues:[/yellow] {issues_text}"
+                )
 
     # Scoring breakdown (the real explanation)
     if result.scoring:
         print_scoring_breakdown(result.scoring)
+
+    # Recommendation (the actionable advice)
+    if result.recommendation:
+        console.print(
+            Panel(
+                result.recommendation,
+                title="[bold]Recommendation[/bold]",
+                border_style="cyan",
+                padding=(1, 2),
+            )
+        )
 
     if result.judge_model:
         console.print(f"[dim]Judged by: {result.judge_model}[/dim]")

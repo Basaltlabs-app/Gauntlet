@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import psutil
+
+if TYPE_CHECKING:
+    from gauntlet.core.prompt_classifier import PromptClassification
 
 
 @dataclass
@@ -33,6 +36,9 @@ class ModelMetrics:
     # Quality (filled by judge)
     quality_scores: dict = field(default_factory=dict)
     overall_score: Optional[float] = None
+
+    # Domain-specific issues found by judge
+    specific_issues: list[str] = field(default_factory=list)
 
     # The generated text
     output: str = ""
@@ -129,6 +135,7 @@ class ModelMetrics:
             ),
             "quality_scores": self.quality_scores,
             "overall_score": self.overall_score,
+            "specific_issues": self.specific_issues,
             "output": self.output,
         }
 
@@ -221,6 +228,8 @@ class ComparisonResult:
     judge_model: Optional[str] = None
     timestamp: Optional[str] = None
     scoring: Optional[ScoringBreakdown] = None
+    classification: Optional["PromptClassification"] = None
+    recommendation: Optional[str] = None
 
     def to_dict(self) -> dict:
         """Serialize to a plain dict."""
@@ -233,6 +242,15 @@ class ComparisonResult:
         }
         if self.scoring:
             d["scoring"] = self.scoring.to_dict()
+        if self.classification:
+            d["classification"] = {
+                "category": self.classification.category,
+                "subcategory": self.classification.subcategory,
+                "subcategory_label": self.classification.subcategory_label,
+                "confidence": self.classification.confidence,
+            }
+        if self.recommendation:
+            d["recommendation"] = self.recommendation
         return d
 
 
@@ -359,6 +377,39 @@ def compute_composite_scores(
         weights=w, model_scores=model_scores,
         winner=winner, winner_reason=winner_reason, formula=formula,
     )
+
+
+# ---------------------------------------------------------------------------
+# Category-specific score weights
+# ---------------------------------------------------------------------------
+
+CATEGORY_WEIGHTS: dict[str, ScoreWeights] = {
+    # Database/auth: quality is paramount -- wrong RLS is worse than being slow
+    "database":        ScoreWeights(speed=0.15, quality=0.70, responsiveness=0.15),
+    "auth_security":   ScoreWeights(speed=0.15, quality=0.70, responsiveness=0.15),
+    # Apps Script: balanced, slight quality lean
+    "apps_script":     ScoreWeights(speed=0.20, quality=0.60, responsiveness=0.20),
+    # Frontend: balanced -- both DX speed and visual correctness matter
+    "frontend":        ScoreWeights(speed=0.25, quality=0.50, responsiveness=0.25),
+    # Backend API: quality-heavy for correctness
+    "backend_api":     ScoreWeights(speed=0.20, quality=0.60, responsiveness=0.20),
+    # DevOps: quality-heavy for reliability
+    "devops":          ScoreWeights(speed=0.20, quality=0.60, responsiveness=0.20),
+    # Data analysis: speed matters more -- fast iteration on data transforms
+    "data_analysis":   ScoreWeights(speed=0.35, quality=0.45, responsiveness=0.20),
+    # Writing: quality-focused
+    "writing_content": ScoreWeights(speed=0.20, quality=0.60, responsiveness=0.20),
+}
+
+
+def weights_for_category(subcategory: Optional[str]) -> ScoreWeights:
+    """Return score weights tuned for a specific task category.
+
+    Falls back to default weights (30/50/20) when no category matches.
+    """
+    if subcategory and subcategory in CATEGORY_WEIGHTS:
+        return CATEGORY_WEIGHTS[subcategory]
+    return ScoreWeights()
 
 
 def _get_system_memory_mb() -> float:

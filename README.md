@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/gauntlet-v1.1.0-b08d6e?style=for-the-badge" alt="version" />
+  <img src="https://img.shields.io/badge/gauntlet-v1.2.0-b08d6e?style=for-the-badge" alt="version" />
 </p>
 
 <h1 align="center">Gauntlet</h1>
@@ -88,6 +88,56 @@ The dashboard runs entirely locally. No data leaves your machine.
 ### Speed Test
 
 The Speed test measures **raw generation throughput on your hardware**. Results are hardware-relative: a model scoring 45 tok/s on an M1 MacBook Air will score differently on a desktop GPU. Speed scores are normalized within each benchmark run (fastest model = 100%), so they're useful for comparing models on the **same machine**, not across different setups.
+
+---
+
+## Use-Case-Aware Recommendations
+
+`gauntlet compare` doesn't just tell you who won -- it tells you **why, for your specific task**.
+
+When you pass a prompt, Gauntlet classifies it into a domain (database, frontend, DevOps, data analysis, etc.) and evaluates each model on **what actually matters** for that domain instead of generic "correctness 1-10" scores.
+
+```bash
+gauntlet compare gemma4:e2b qwen3.5:4b "build a CRM with Supabase auth and row-level security"
+```
+
+```
+Detected: database task  (confidence: 36%, signals: supabase, postgres, rls, sql)
+
+┌─────────────────── Quality Breakdown ───────────────────┐
+│ Model          Schema Design  Security  Query  API Acc. │
+│ gemma4:e2b          9            8        8       9     │
+│ qwen3.5:4b          6            4        7       3     │
+└─────────────────────────────────────────────────────────┘
+
+  qwen3.5:4b  Issues: hallucinated supabase.auth.admin method; missing RLS on users table
+
+┌─────────────────────── Recommendation ──────────────────────┐
+│ gemma4:e2b won for this database task. Scored well on       │
+│ Schema Design: 9/10, API Accuracy: 9/10, Security: 8/10.   │
+│ No domain-specific issues detected. qwen3.5:4b: hallucinated│
+│ supabase.auth.admin method; missing RLS on users table.     │
+│ On your hardware, gemma4:e2b also ran 1.4x faster           │
+│ (45.2 vs 32.1 tok/s).                                       │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Supported Domains
+
+| Domain | What Gets Evaluated |
+|---|---|
+| **Database** | Schema design, RLS policies, query correctness, API accuracy |
+| **Auth & Security** | Auth flows, token handling, CSRF, edge cases |
+| **Google Apps Script** | API usage, quota awareness, trigger patterns, error handling |
+| **Frontend** | Component design, styling, interactivity, best practices |
+| **Backend API** | API design, validation, security middleware, architecture |
+| **DevOps** | Config correctness, pipeline design, secrets management, reliability |
+| **Data Analysis** | Data handling, analysis logic, visualization, code efficiency |
+| **Writing & Content** | Structure, tone, substance, engagement |
+
+Each domain uses **tuned score weights**. Database tasks weight quality at 70% (a wrong RLS policy is worse than being slow). Data analysis weights speed at 35% (fast iteration matters). Unclassified prompts fall back to the default 30/50/20 split.
+
+Prompt classification is **deterministic keyword matching** -- no LLM calls, instant, reproducible.
 
 ---
 
@@ -320,6 +370,14 @@ gauntlet run --model ollama/qwen3.5:4b --model ollama/gemma4:e2b
 
 # Mix local and cloud models
 gauntlet run --model ollama/qwen3.5:4b --model openai/gpt-4o
+
+# Compare models on a specific task (use-case-aware evaluation)
+gauntlet compare gemma4:e2b qwen3.5:4b "build a CRM with Supabase auth and RLS"
+gauntlet compare gemma4:e2b qwen3.5:4b "analyze this CSV for sales trends"
+gauntlet compare gemma4:e2b qwen3.5:4b "write a Google Apps Script to sync calendar"
+
+# Compare with sequential mode (saves memory on 8GB machines)
+gauntlet compare gemma4:e2b qwen3.5:4b "explain recursion" --seq
 
 # Launch the web dashboard
 gauntlet dashboard
