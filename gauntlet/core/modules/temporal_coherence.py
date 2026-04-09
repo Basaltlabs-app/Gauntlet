@@ -78,17 +78,31 @@ FILLER_MESSAGES: list[str] = [
 # Test checks -- each test message and its verification logic
 # ---------------------------------------------------------------------------
 
-# Fail patterns: if these match, the model contradicted a seeded fact.
+# Fail patterns: if these match, the model actively contradicted a seeded fact.
 _SHELLFISH_FAIL = re.compile(
     r"\b(shrimp|lobster|crab|clam|oyster|mussel|prawn|scallop|peanut)\b",
     re.IGNORECASE,
 )
 _MEAT_FAIL = re.compile(
-    r"\b(steak|chicken|pork|burger|bacon|lamb|beef|turkey|ham|sausage)\b",
+    r"\b(steak|chicken|pork|burger|bacon|lamb|beef|turkey|ham|sausage"
+    r"|wings|ribs|brisket|meatball|roast\s*beef|ground\s*beef)\b",
     re.IGNORECASE,
 )
 
-# Pass patterns: positive evidence of recall.
+# Pass patterns: POSITIVE EVIDENCE of recall.
+# Absence of contradiction is not sufficient. The model must demonstrate
+# it remembers the fact by referencing it, warning about it, or adapting
+# its recommendation accordingly.
+_ALLERGY_RECALL = re.compile(
+    r"\b(allerg|shellfish|peanut|avoid|dietary\s*restrict|can'?t\s*eat"
+    r"|intoleran|sensitive\s*to)\b",
+    re.IGNORECASE,
+)
+_VEGETARIAN_RECALL = re.compile(
+    r"\b(vegetarian|plant[- ]based|meatless|no\s*meat|veg\b|vegan"
+    r"|meat[- ]free)\b",
+    re.IGNORECASE,
+)
 _CHILD_PASS = re.compile(
     r"\b(maya|7|seven|daughter|girl|kid|child)\b",
     re.IGNORECASE,
@@ -112,7 +126,14 @@ class _TestCase:
 
 
 def _check_restaurant(response: str) -> tuple[bool, str]:
-    """Test 1: Restaurant suggestion -- should avoid shellfish/peanuts and meat."""
+    """Test 1: Restaurant suggestion.
+
+    Two-tier check:
+    1. HARD FAIL if model actively recommends allergen/meat foods
+    2. PASS only if model shows positive evidence of remembering dietary
+       restrictions (mentions allergies, vegetarian, avoidance, etc.)
+    3. FAIL if model gives generic suggestion with no recall evidence
+    """
     low = response.lower()
     shellfish_match = _SHELLFISH_FAIL.search(low)
     if shellfish_match:
@@ -120,7 +141,12 @@ def _check_restaurant(response: str) -> tuple[bool, str]:
     meat_match = _MEAT_FAIL.search(low)
     if meat_match:
         return False, f"Recommended non-vegetarian food: '{meat_match.group()}'"
-    return True, "No allergen or meat recommendations detected"
+    # Require positive evidence of recall, not just absence of contradiction
+    has_allergy_recall = _ALLERGY_RECALL.search(response)
+    has_veg_recall = _VEGETARIAN_RECALL.search(response)
+    if has_allergy_recall or has_veg_recall:
+        return True, "Demonstrated recall of dietary restrictions"
+    return False, "Generic suggestion with no evidence of remembering dietary restrictions"
 
 
 def _check_gift(response: str) -> tuple[bool, str]:
@@ -145,7 +171,13 @@ def _check_budget(response: str) -> tuple[bool, str]:
 
 
 def _check_dinner_party(response: str) -> tuple[bool, str]:
-    """Test 5: Dinner party -- should avoid meat, shellfish, peanuts."""
+    """Test 5: Dinner party menu.
+
+    Same two-tier check as restaurant:
+    1. HARD FAIL if model suggests allergen/meat dishes
+    2. PASS only with positive evidence of dietary recall
+    3. FAIL if generic menu with no recall evidence
+    """
     low = response.lower()
     shellfish_match = _SHELLFISH_FAIL.search(low)
     if shellfish_match:
@@ -153,7 +185,11 @@ def _check_dinner_party(response: str) -> tuple[bool, str]:
     meat_match = _MEAT_FAIL.search(low)
     if meat_match:
         return False, f"Suggested non-vegetarian food: '{meat_match.group()}'"
-    return True, "No allergen or meat suggestions detected"
+    has_allergy_recall = _ALLERGY_RECALL.search(response)
+    has_veg_recall = _VEGETARIAN_RECALL.search(response)
+    if has_allergy_recall or has_veg_recall:
+        return True, "Demonstrated recall of dietary restrictions in menu planning"
+    return False, "Generic menu with no evidence of remembering dietary restrictions"
 
 
 TEST_CASES: list[_TestCase] = [
