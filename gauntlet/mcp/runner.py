@@ -145,10 +145,9 @@ class GauntletRunner:
         # Move to next test
         if self.current_test_idx < self.total_tests:
             next_prompt = self._start_next_test()
-            # Combine: show result of previous test + prompt for next
+            # Compact: result line + next prompt
             return {
                 "status": "prompt",
-                "test_result": test_result,
                 "test_number": self.current_test_idx,
                 "total_tests": self.total_tests,
                 "prompt": next_prompt["prompt"],
@@ -156,8 +155,7 @@ class GauntletRunner:
                 "test_category": next_prompt["test_category"],
                 "step": next_prompt.get("step"),
                 "total_steps": next_prompt.get("total_steps"),
-                "message": next_prompt["message"],
-                "previous_result": test_result,
+                "message": f"{test_result}\n\n{next_prompt['message']}",
             }
         else:
             # All done
@@ -183,10 +181,9 @@ class GauntletRunner:
         return self._send_step(probe, 0)
 
     def _send_step(self, probe: dict, step_idx: int) -> dict:
-        """Build the prompt message for a given step."""
+        """Build the prompt message for a given step. Minimal overhead."""
         step = probe["steps"][step_idx]
 
-        # Resolve prompt (may be a callable for multi-turn)
         if callable(step.get("prompt")):
             prompt_text = step["prompt"](self.current_test.responses)
         else:
@@ -195,27 +192,11 @@ class GauntletRunner:
         total_steps = len(probe["steps"])
         is_followup = step_idx > 0
 
-        # Build the message the AI sees
+        # Compact message format to minimize token overhead
+        parts = [f"[{self.current_test_idx}/{self.total_tests}]"]
         if is_followup:
-            header = f"[TEST {self.current_test_idx}/{self.total_tests}: {probe['name']} — Follow-up {step_idx + 1}/{total_steps}]"
-        else:
-            header = f"[TEST {self.current_test_idx}/{self.total_tests}: {probe['name']}]"
-
-        # Show progress bar
-        done = len(self.completed)
-        passed = sum(1 for t in self.completed if t.passed)
-        failed = done - passed
-        progress = f"Progress: {done}/{self.total_tests} complete"
-        if done > 0:
-            progress += f" ({passed} passed, {failed} failed)"
-
-        message = f"{header}\n{progress}\n\n"
-
-        if is_followup and self.current_test.responses:
-            message += f"Your previous response: \"{self.current_test.responses[-1].strip()[:200]}\"\n\n"
-
-        message += f"Answer the following prompt, then call gauntlet_run with your response.\n\n"
-        message += f"PROMPT: {prompt_text}"
+            parts.append(f"(follow-up {step_idx + 1}/{total_steps})")
+        parts.append(f"\n\nPROMPT: {prompt_text}")
 
         return {
             "status": "prompt",
@@ -226,7 +207,7 @@ class GauntletRunner:
             "prompt": prompt_text,
             "step": step_idx + 1,
             "total_steps": total_steps,
-            "message": message,
+            "message": " ".join(parts[:2]) + parts[2],
         }
 
     # ------------------------------------------------------------------
