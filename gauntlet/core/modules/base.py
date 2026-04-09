@@ -243,6 +243,89 @@ class GauntletModule(ABC):
         """
         ...
 
+    def auto_verify(self, probe: Probe, model_output: str) -> tuple[bool, float, str] | None:
+        """Route to the correct verification tier based on probe.meta.
+
+        Returns (passed, score, reason) if a verification spec is found
+        in probe.meta, or None if the probe has no spec (use manual check).
+
+        Modules can call this from their check() method:
+            result = self.auto_verify(probe, model_output)
+            if result is not None:
+                return result
+            # ... fallback to manual check logic ...
+        """
+        from gauntlet.core.verification import (
+            verify, verify_structured, verify_code_execution,
+            VerificationSpec, StructuredSpec, CodeExecutionSpec,
+        )
+
+        meta = probe.meta
+        if "verification_spec" in meta:
+            spec = meta["verification_spec"]
+            if isinstance(spec, dict):
+                spec = VerificationSpec(**spec)
+            r = verify(model_output, spec)
+            return r.to_check_result()
+
+        if "structured_spec" in meta:
+            spec = meta["structured_spec"]
+            if isinstance(spec, dict):
+                spec = StructuredSpec(**spec)
+            r = verify_structured(model_output, spec)
+            return r.to_check_result()
+
+        if "code_execution_spec" in meta:
+            spec = meta["code_execution_spec"]
+            if isinstance(spec, dict):
+                spec = CodeExecutionSpec(**spec)
+            r = verify_code_execution(model_output, spec)
+            return r.to_check_result()
+
+        return None
+
+    async def _cross_validate(
+        self,
+        client: "ChatClient",
+        probe: Probe,
+        passed: bool,
+        score: float,
+        reason: str,
+        quick: bool = False,
+    ) -> tuple[bool, float, str]:
+        """Apply Tier 4 cross-validation if probe.meta has a cross_validate spec.
+
+        Sends alternative phrasings of the same question. If the original
+        passed but alternatives fail, the score is downgraded.
+
+        Call from run() after check():
+            passed, score, reason = self.check(probe, response)
+            passed, score, reason = await self._cross_validate(
+                client, probe, passed, score, reason, quick=quick,
+            )
+        """
+        cv_data = probe.meta.get("cross_validate")
+        if cv_data is None:
+            return passed, score, reason
+
+        from gauntlet.core.verification import cross_validate, CrossValidationSpec
+
+        if isinstance(cv_data, dict):
+            cv_spec = CrossValidationSpec(**cv_data)
+        else:
+            cv_spec = cv_data
+
+        return await cross_validate(
+            client=client,
+            probe=probe,
+            cv_spec=cv_spec,
+            original_passed=passed,
+            original_score=score,
+            original_reason=reason,
+            check_fn=self.check,
+            quick=quick,
+        )
+
     async def run(self, client: "ChatClient", config: dict | None = None) -> ModuleResult:
         """Run all probes against the model.
 
@@ -278,6 +361,12 @@ class GauntletModule(ABC):
                 elapsed = time.perf_counter() - t0
 
                 passed, score, reason = self.check(probe, response)
+
+                # Tier 4: cross-validation (if probe.meta has cross_validate)
+                if "cross_validate" in probe.meta:
+                    passed, score, reason = await self._cross_validate(
+                        client, probe, passed, score, reason, quick=quick,
+                    )
 
                 result.probe_results.append(ProbeResult(
                     probe_id=probe.id,

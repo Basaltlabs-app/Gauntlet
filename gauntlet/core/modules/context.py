@@ -93,7 +93,16 @@ _PROBES_FULL = [
             ("user", f"Read this passage carefully:\n\n{_NEEDLE_PASSAGE_1}\n\nWhat is the secret code mentioned in the document?"),
         ],
         expected="Should find: BLUE-SPARROW-42",
-        meta={"answer_pattern": r"BLUE[\s-]*SPARROW[\s-]*42"},
+        meta={
+            "answer_pattern": r"BLUE[\s-]*SPARROW[\s-]*42",
+            "cross_validate": {
+                "alternative_phrasings": [
+                    f"Read this document:\n\n{_NEEDLE_PASSAGE_1}\n\nThere is a hidden code or identifier embedded somewhere in the text. What is it?",
+                    f"Review the following passage:\n\n{_NEEDLE_PASSAGE_1}\n\nFind and extract the alphanumeric code that appears in this document.",
+                ],
+                "downgrade_factor": 0.3,
+            },
+        },
     ),
     Probe(
         id="ctx_02",
@@ -105,7 +114,15 @@ _PROBES_FULL = [
             ("user", f"Read this passage:\n\n{_NEEDLE_PASSAGE_1}\n\nHow much money did Margaret Ashworth donate for the library's construction?"),
         ],
         expected="Should find: $47,500",
-        meta={"answer_pattern": r"\$?47[,.]?500"},
+        meta={
+            "answer_pattern": r"\$?47[,.]?500",
+            "cross_validate": {
+                "alternative_phrasings": [
+                    f"Read this passage:\n\n{_NEEDLE_PASSAGE_1}\n\nWhat was the dollar amount of the donation made for the library?",
+                ],
+                "downgrade_factor": 0.3,
+            },
+        },
     ),
     Probe(
         id="ctx_03",
@@ -117,7 +134,15 @@ _PROBES_FULL = [
             ("user", f"Read these meeting notes:\n\n{_NEEDLE_PASSAGE_2}\n\nWhat is the account number for the infrastructure reserve fund?"),
         ],
         expected="Should find: INFRA-2024-Q3-7892",
-        meta={"answer_pattern": r"INFRA-2024-Q3-7892"},
+        meta={
+            "answer_pattern": r"INFRA-2024-Q3-7892",
+            "cross_validate": {
+                "alternative_phrasings": [
+                    f"Read these meeting notes:\n\n{_NEEDLE_PASSAGE_2}\n\nWhat identifier or account code is associated with the infrastructure reserve?",
+                ],
+                "downgrade_factor": 0.3,
+            },
+        },
     ),
 
     # --- MULTI-FACT RECALL ---

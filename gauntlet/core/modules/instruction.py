@@ -313,7 +313,17 @@ class InstructionAdherence(GauntletModule):
         return probes
 
     def check(self, probe: Probe, model_output: str) -> tuple[bool, float, str]:
-        """Deterministic check: does the response satisfy the constraints?"""
+        """Deterministic check: does the response satisfy the constraints?
+
+        Supports Tier 1/2 verification engine via auto_verify when a
+        verification_spec or structured_spec is in probe.meta.
+        Falls back to legacy check logic for existing probes.
+        """
+        # Try verification engine first (Tier 1 or Tier 2)
+        result = self.auto_verify(probe, model_output)
+        if result is not None:
+            return result
+
         text = model_output.strip()
         meta = probe.meta
         check_type = meta.get("check", "")
