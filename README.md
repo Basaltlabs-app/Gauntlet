@@ -5,7 +5,8 @@
 <h1 align="center">Gauntlet</h1>
 
 <p align="center">
-  <strong>A Deterministic Benchmark for Behavioral Reliability in Large Language Models</strong>
+  <strong>Community-Driven Behavioral Research Platform for Large Language Models</strong><br>
+  <sub>Every test from every user on every hardware configuration feeds a shared, open dataset.</sub>
 </p>
 
 <p align="center">
@@ -35,23 +36,28 @@
 
 ## Abstract
 
-Existing LLM benchmarks (MMLU, HumanEval, SWE-bench) evaluate factual knowledge and task completion. They do not measure how a model **behaves** under adversarial conditions, social pressure, or extended interaction. Gauntlet addresses this gap by providing a deterministic evaluation framework for behavioral reliability: the tendency of a model to maintain correct positions under pressure, admit uncertainty when appropriate, follow instructions precisely, and resist manipulation across multi-turn conversations.
+Existing LLM benchmarks produce results from a single lab, on a single hardware configuration, at a single point in time. They tell you what a model knows (MMLU, HumanEval, SWE-bench) but not how it behaves. And because results come from one source, they cannot answer the question that matters most: **"How does this model perform on hardware like mine, for tasks like mine?"**
 
-The framework introduces several evaluation dimensions absent from prior work:
+Gauntlet is a community-driven behavioral research platform. Every user who runs a test contributes their results, including anonymous hardware metadata (GPU class, RAM, quantization level, OS), to a shared open dataset. The more people test, the more representative the data becomes. Instead of trusting one lab's numbers, you get aggregated behavioral profiles across hundreds of users, diverse hardware, and different quantization levels.
 
-- **Sycophancy gradient mapping**: quantifying the exact social pressure threshold at which a model abandons a correct answer, across five escalation levels
-- **Instruction decay measurement**: determining the conversation distance at which system prompt constraints degrade
-- **Temporal coherence testing**: evaluating fact retention across 20-turn conversations with interleaved distractor topics
-- **Confidence calibration analysis**: measuring the correlation between stated confidence and actual accuracy using Expected Calibration Error (ECE)
+**What it measures** (16 dimensions no other benchmark tests):
 
-All scoring is deterministic (regex, pattern matching, AST parsing). No LLM-as-judge is employed. 18 dynamic probe factories randomize parameter values each run to prevent benchmark contamination through memorization.
+- **Sycophancy gradient mapping**: the exact social pressure level at which a model abandons a correct answer
+- **Instruction decay**: how many conversation turns before system prompt constraints degrade
+- **Temporal coherence**: fact retention across 20-turn conversations with interleaved distractors
+- **Confidence calibration**: correlation between stated confidence and actual accuracy (ECE)
+- **Pressure resistance, hallucination detection, safety boundaries, refusal calibration**, and 8 more
+
+**How it scores**: fully deterministic (regex, pattern matching, AST parsing). No LLM-as-judge. 18 dynamic probe factories randomize values each run to prevent memorization.
+
+**What makes it different**: not a tool, a platform. Results from CLI, TUI, dashboard, and MCP all feed the same community dataset, filterable by hardware, quantization, and provider.
 
 ```bash
 pip install gauntlet-cli
 gauntlet
 ```
 
-Results are aggregated into a [public community leaderboard](https://basaltlabs.app/gauntlet/leaderboard) with live Elo rankings.
+**[Community Leaderboard](https://basaltlabs.app/gauntlet/leaderboard)**: live rankings, filterable by GPU class, quantization, provider, and OS. You don't need to run tests yourself if someone on similar hardware already has.
 
 ---
 
@@ -94,22 +100,48 @@ The dashboard runs locally. Benchmark scores (model name, grade, category scores
 
 **Live at [basaltlabs.app/gauntlet/leaderboard](https://basaltlabs.app/gauntlet/leaderboard)**
 
-Every `gauntlet run` and `gauntlet compare` from every user feeds a shared, community-driven leaderboard. The more people test, the more accurate the rankings become.
+Every test from every user on every hardware configuration feeds a shared, open dataset. The leaderboard has three views:
 
-**Why this matters:** Most benchmark results come from a single lab on a single hardware configuration. Gauntlet's leaderboard aggregates scores across hundreds of users, diverse hardware (laptops, desktops, cloud GPUs), and different quantization levels. The result is a behavioral reliability profile that reflects how a model actually performs in the real world, not in a controlled environment.
+**Community** (local hardware results): Aggregated scores from users running models on their own machines. Filter by GPU class (Apple Silicon, NVIDIA, AMD, CPU-only), quantization level (Q4, Q8, FP16), provider, and OS. Find results from setups similar to yours.
 
-**You don't need to run any tests yourself.** If someone else has already tested the model you're considering, their results are on the leaderboard. Check the scores, compare the category breakdowns, and make an informed decision without running a single probe.
+**Elo Rankings**: Win/loss/draw records from head-to-head `gauntlet compare` runs. Elo ratings update in real-time across all users.
 
-**What's on the leaderboard:**
-- **Elo Rankings**: win/loss/draw records from head-to-head comparisons across all users
-- **Test Stats and Graphs**: animated sparklines showing score trends over time, per-category radar charts, community-averaged scores
-- **Category Breakdowns**: see exactly where each model is strong or weak (e.g. "high sycophancy resistance but poor instruction decay")
+**MCP Self-Tests**: Results from AI models testing themselves via the MCP server. Kept separate from community hardware results because MCP runs on cloud infrastructure, not local hardware.
 
-**Contributing is automatic.** Every time you run `gauntlet run` or `gauntlet compare`, your model's scores are added to the community pool. No signup, no account, no manual submission.
+### Filterable by Hardware
 
-**API endpoints** (public, CORS-enabled):
-- `GET https://gauntlet.basaltlabs.app/api/leaderboard` -- Elo ratings JSON
-- `GET https://gauntlet.basaltlabs.app/api/leaderboard/history` -- aggregated test stats with sparkline data
+The query most benchmarks cannot answer: *"How does qwen3.5:4b perform on Apple Silicon with Q4 quantization?"*
+
+Gauntlet can. Every test submission includes anonymous hardware metadata:
+
+| Collected | Example Values |
+|---|---|
+| GPU class | apple_silicon, nvidia, amd, cpu_only |
+| Quantization | Q4_K_M, Q8_0, FP16, cloud |
+| Parameter size | 4.7B, 14B, 35B |
+| CPU architecture | arm64, x86_64 |
+| RAM | 8GB, 16GB, 32GB, 64GB |
+| OS | macOS, Linux, Windows |
+| Provider | Ollama, OpenAI, Anthropic, Google |
+
+Filter the leaderboard by any combination. See how models compare on hardware like yours, not on a lab machine you will never own.
+
+### Contributing
+
+Contributing is automatic. Every `gauntlet run` or `gauntlet compare` adds your scores and hardware fingerprint to the community pool. No signup, no account, no manual submission. More contributors means more representative data.
+
+### API
+
+Public, CORS-enabled endpoints for building your own tools on top of the community data:
+
+```
+GET /api/leaderboard                              -- Elo ratings
+GET /api/leaderboard/history                       -- aggregated stats + sparklines
+GET /api/leaderboard/history?gpu_class=apple_silicon  -- filtered by GPU
+GET /api/leaderboard/history?quantization=Q4       -- filtered by quantization
+GET /api/leaderboard/history?source=mcp            -- MCP self-tests only
+GET /api/leaderboard/history?exclude_source=mcp    -- community only
+```
 
 See [Data and Privacy](#data-and-privacy) for exactly what is and is not shared.
 
@@ -396,21 +428,31 @@ gauntlet leaderboard
 
 ## Data and Privacy
 
-Gauntlet shares **only aggregate benchmark scores** with the public leaderboard:
+Gauntlet transmits **benchmark scores and anonymous hardware metadata** to the community leaderboard. Here is exactly what is and is not sent:
 
-| Transmitted (public leaderboard) | Not transmitted |
+| Transmitted | Not transmitted |
 |---|---|
 | Model name (e.g. "qwen3.5:4b") | User prompts |
 | Overall score, trust score, grade | Model outputs or responses |
 | Per-category pass rates | IP address or user identity |
 | Tokens/sec (hardware-relative) | API keys or credentials |
-| Source (cli/tui/dashboard/mcp) | File contents or system information |
+| Source (cli/tui/dashboard/mcp) | File contents |
+| CPU architecture (arm64, x86_64) | Hostname or MAC address |
+| CPU core count | Username or home directory |
+| Total RAM (e.g. 16GB) | Running processes |
+| GPU class (apple_silicon, nvidia, amd) | GPU model name or driver version |
+| OS platform (darwin, linux, windows) | Full OS version string |
+| Model quantization (Q4_K_M, Q8_0) | Filesystem paths |
+| Model family and parameter size | Network configuration |
+| Ollama version (if applicable) | Browser or application data |
 
-**All scoring executes locally.** Deterministic probes, verification logic, and grading run on the user's machine. Only final numeric scores are transmitted to the leaderboard.
+**All scoring executes locally.** Probes, verification, and grading run on your machine. Only final numeric scores and the hardware class metadata above are transmitted.
 
-**MCP sessions** use temporary server-side state that is automatically deleted on completion (or after 1 hour if abandoned via pg_cron). No session data is retained long-term.
+**Why hardware metadata?** It enables community filtering. Without it, results from a 128GB cloud GPU and an 8GB laptop get averaged together, which helps nobody. With it, you can filter for "Apple Silicon, Q4, 16GB" and see results relevant to your setup.
 
-**Opting out:** The leaderboard sync only activates when `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` environment variables are configured (only on the hosted Vercel deployment). Local installations send nothing.
+**MCP sessions** use temporary server-side state, automatically deleted on completion or after 1 hour (pg_cron). MCP results are stored separately from community hardware results.
+
+**Opting out:** The leaderboard sync only activates on the hosted Vercel deployment. Local `pip install gauntlet-cli` installations do not have the Supabase credentials and send nothing anywhere.
 
 ---
 
@@ -428,7 +470,7 @@ Gauntlet addresses limitations in existing evaluation frameworks:
 | TrustLLM (ICML 2024) | Trustworthiness (6 dims) | Mixed (LLM + auto) | No | Static dataset |
 | **Gauntlet** | Behavioral reliability (16 dims) | Fully deterministic | Yes (up to 25 turns) | 18 dynamic factories |
 
-Key differentiators: (1) no reliance on LLM-as-judge, eliminating judge model bias; (2) multi-turn behavioral protocols (sycophancy gradient, temporal coherence, instruction decay); (3) dynamic probe factories preventing benchmark contamination through memorization; (4) novel evaluation dimensions (confidence calibration via ECE, instruction decay rate, pressure threshold mapping).
+Key differentiators: (1) no reliance on LLM-as-judge, eliminating judge model bias; (2) multi-turn behavioral protocols (sycophancy gradient, temporal coherence, instruction decay); (3) dynamic probe factories preventing benchmark contamination through memorization; (4) novel evaluation dimensions (confidence calibration via ECE, instruction decay rate, pressure threshold mapping); (5) community-aggregated results with hardware metadata, enabling filterable cross-hardware comparison that no single-lab benchmark can provide.
 
 ---
 
@@ -452,5 +494,5 @@ MIT
 
 <p align="center">
   Built by <a href="https://basaltlabs.ai">Basalt Labs</a><br>
-  <sub>Deterministic behavioral evaluation for large language models.</sub>
+  <sub>Community-driven behavioral research for large language models.</sub>
 </p>
