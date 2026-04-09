@@ -58,10 +58,29 @@ async def cors_preflight(request: Request) -> Response:
 # Combined app: MCP + REST
 # ---------------------------------------------------------------------------
 
-app = Starlette(
-    routes=[
-        Route("/api/leaderboard", leaderboard_handler, methods=["GET"]),
-        Route("/api/leaderboard", cors_preflight, methods=["OPTIONS"]),
-        Mount("/", app=_mcp_app),
-    ],
-)
+# The MCP app handles /mcp internally. We wrap it so /api/leaderboard is
+# handled first, then everything else falls through to the MCP app.
+
+from starlette.middleware import Middleware
+from starlette.types import ASGIApp, Receive, Scope, Send
+
+
+class _CombinedApp:
+    """Route /api/leaderboard to our handler, everything else to MCP."""
+
+    def __init__(self) -> None:
+        self._rest = Starlette(
+            routes=[
+                Route("/api/leaderboard", leaderboard_handler, methods=["GET"]),
+                Route("/api/leaderboard", cors_preflight, methods=["OPTIONS"]),
+            ],
+        )
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope.get("path", "").startswith("/api/leaderboard"):
+            await self._rest(scope, receive, send)
+        else:
+            await _mcp_app(scope, receive, send)
+
+
+app = _CombinedApp()
