@@ -63,6 +63,23 @@ def _delete_runner(session_id: str) -> None:
         _runners.pop(session_id, None)
 
 
+def _cleanup_stale_sessions() -> None:
+    """Purge orphaned sessions (started but never finished).
+
+    Called opportunistically on each new run start. Cheap: one DELETE query.
+    Cleans sessions older than 1 hour to avoid accumulation.
+    """
+    if _USE_SUPABASE:
+        try:
+            from gauntlet.mcp.session_store import cleanup_old_sessions
+            cleanup_old_sessions(max_age_hours=1)
+        except Exception as e:
+            logger.debug(f"Session cleanup failed (non-fatal): {e}")
+    else:
+        # In-memory: nothing to clean, sessions die with the process
+        pass
+
+
 # ---------------------------------------------------------------------------
 # MCP Server
 # ---------------------------------------------------------------------------
@@ -121,6 +138,9 @@ def gauntlet_run(
 
     # Starting a new run
     if response is None:
+        # Opportunistic cleanup: purge orphaned sessions older than 1 hour
+        _cleanup_stale_sessions()
+
         sid = str(uuid.uuid4())[:8]
         runner = GauntletRunner(quick=quick, client_name=client_name)
         result = runner.advance()
