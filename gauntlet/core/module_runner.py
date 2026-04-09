@@ -86,6 +86,22 @@ def load_all_modules() -> None:
         from gauntlet.core.modules import contamination  # noqa: F401
     except ImportError:
         pass
+    try:
+        from gauntlet.core.modules import sycophancy_gradient  # noqa: F401
+    except ImportError:
+        pass
+    try:
+        from gauntlet.core.modules import instruction_decay  # noqa: F401
+    except ImportError:
+        pass
+    try:
+        from gauntlet.core.modules import temporal_coherence  # noqa: F401
+    except ImportError:
+        pass
+    try:
+        from gauntlet.core.modules import confidence_calibration  # noqa: F401
+    except ImportError:
+        pass
 
 
 # ---------------------------------------------------------------------------

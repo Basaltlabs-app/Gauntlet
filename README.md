@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/gauntlet-v1.2.0-b08d6e?style=for-the-badge" alt="version" />
+  <img src="https://img.shields.io/badge/gauntlet-v1.3.0-b08d6e?style=for-the-badge" alt="version" />
 </p>
 
 <h1 align="center">Gauntlet</h1>
@@ -24,7 +24,7 @@
 <p align="center">
   <img src="https://img.shields.io/pypi/v/gauntlet-cli?color=b08d6e" alt="PyPI" />
   <img src="https://img.shields.io/github/license/Basaltlabs-app/Gauntlet" alt="License" />
-  <img src="https://img.shields.io/badge/probes-56-c4a05a" alt="56 Probes" />
+  <img src="https://img.shields.io/badge/probes-109-c4a05a" alt="109 Probes" />
   <img src="https://img.shields.io/badge/scoring-deterministic-c4a05a" alt="Deterministic" />
 </p>
 
@@ -163,22 +163,26 @@ Prompt classification is **deterministic keyword matching** -- no LLM calls, ins
 
 ## What It Tests
 
-**12 behavioral categories. 56 probes. 18 dynamic factories.** Each category contains parameterized probes with deterministic scoring. No model judges another model.
+**16 behavioral categories. 109 probes. 18 dynamic factories.** Each category contains parameterized probes with deterministic scoring. No model judges another model.
 
 | Category | Probes | What It Tests | How It Verifies |
 |---|---|---|---|
-| **Instruction Following** | 10 | Does it follow constraints exactly? | Format regex, word count, forbidden word/letter checks |
+| **Instruction Following** | 12 | Does it follow constraints exactly? | Format regex, word count, forbidden word/letter checks |
 | **Code Generation** | 6 | Can it write correct, structured code? | AST parsing, output validation, edge case coverage |
 | **Factual Accuracy** | 3 | Does it get facts right? | Ground truth comparison (randomized capitals, math) |
 | **Reasoning** | 3 | Can it chain logical steps? | Multi-step logic chains with randomized values |
-| **Consistency** | 6 | Same question 3 ways = same answer? | Cross-response similarity, math/geography/science variants |
-| **Pressure Resistance** | 5 | Does it fold under pushback? | Multi-turn: correct answer, pressure, check for cave |
-| **Safety Boundary** | 3 | Does it refuse genuinely harmful requests? | Refusal pattern detection (direct, social engineering, jailbreak) |
-| **Refusal Calibration** | 3 | Does it over-refuse benign questions? | Should-answer vs should-refuse on medical, history, security topics |
+| **Consistency** | 8 | Same question 3 ways = same answer? | Cross-response similarity, math/geography/science variants |
+| **Pressure Resistance** | 10 | Does it fold under pushback? | Multi-turn: correct answer, pressure, check for cave |
+| **Safety Boundary** | 10 | Does it refuse genuinely harmful requests? | Refusal pattern detection (direct, social engineering, jailbreak) |
+| **Refusal Calibration** | 12 | Does it over-refuse benign questions? | Should-answer vs should-refuse on medical, history, security topics |
 | **Injection Resistance** | 2 | Can it resist prompt injection? | Embedded instructions in documents and system prompts |
-| **Hallucination Detection** | 5 | Does it invent facts, people, or quotes? | Fake entity/quote detection, false statistic identification |
-| **Ambiguity / Honesty** | 5 | Does it admit "I don't know"? | Uncertainty keyword/pattern matching, future prediction resistance |
-| **Context Recall** | 5 | Can it find buried details in long text? | Hidden value retrieval, multi-fact recall, contradiction detection |
+| **Hallucination Detection** | 10 | Does it invent facts, people, or quotes? | Fake entity/quote detection, false statistic identification |
+| **Ambiguity / Honesty** | 12 | Does it admit "I don't know"? | Uncertainty keyword/pattern matching, future prediction resistance |
+| **Context Recall** | 10 | Can it find buried details in long text? | Hidden value retrieval, multi-fact recall, contradiction detection |
+| **Sycophancy Gradient** | 5 | At what pressure level does it break? | 5-level escalation: gentle → peer → authority → hostile → ultimatum |
+| **Instruction Decay** | 4 | When does it forget system constraints? | 15-turn conversations testing word/format/role/persona memory |
+| **Temporal Coherence** | 3 | Does it remember facts across long conversations? | Seed 5 facts, add filler, test recall at distance 5/10/15 |
+| **Confidence Calibration** | 10 | Is stated confidence correlated with accuracy? | Expected Calibration Error across easy/medium/hard/impossible questions |
 
 ### Dynamic Probe Factories
 
@@ -212,7 +216,7 @@ Factory state is serialized for reproducible runs and serverless state persisten
 Gauntlet uses a **deduction-based trust scoring** system. Every model starts at 100 and loses points for behavioral failures. This maps closer to how trust works in the real world: a single critical failure (hallucination, safety breach) damages trust disproportionately.
 
 Key features:
-- **56 parameterized probes** across 12 behavioral categories
+- **109 parameterized probes** across 16 behavioral categories
 - **18 dynamic factories** that randomize to prevent memorization
 - **Severity-weighted deductions**: CRITICAL failures cost 3x, HIGH 2x, MEDIUM 1x, LOW 0.5x
 - **Category deduction cap**: no single category can drain more than 25 points
@@ -302,7 +306,7 @@ Add this to your MCP client config (Claude Code, Cursor, Windsurf, etc.):
 
 Then tell your AI: **"Run the gauntlet on yourself"**
 
-Same 56 tests. Same deterministic scoring. Same dynamic factories. The AI just happens to be running them on itself.
+Same 109 tests. Same deterministic scoring. Same dynamic factories. The AI just happens to be running them on itself.
 
 ---
 

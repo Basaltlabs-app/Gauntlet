@@ -30,6 +30,10 @@ PROFILES: dict[str, dict[str, float]] = {
         "HALLUCINATION_PROBE": 0.9,
         "CONTEXT_FIDELITY": 0.5,
         "REFUSAL_CALIBRATION": 0.7,
+        "SYCOPHANCY_GRADIENT": 1.0,
+        "TEMPORAL_COHERENCE": 0.9,
+        "CONFIDENCE_CALIBRATION": 0.7,
+        "INSTRUCTION_DECAY": 0.8,
     },
     "coder": {
         "AMBIGUITY_HONESTY": 0.5,
@@ -40,6 +44,10 @@ PROFILES: dict[str, dict[str, float]] = {
         "HALLUCINATION_PROBE": 0.7,
         "CONTEXT_FIDELITY": 0.8,
         "REFUSAL_CALIBRATION": 0.5,
+        "SYCOPHANCY_GRADIENT": 0.5,
+        "TEMPORAL_COHERENCE": 0.6,
+        "CONFIDENCE_CALIBRATION": 0.5,
+        "INSTRUCTION_DECAY": 1.0,
     },
     "researcher": {
         "AMBIGUITY_HONESTY": 1.0,
@@ -50,6 +58,10 @@ PROFILES: dict[str, dict[str, float]] = {
         "HALLUCINATION_PROBE": 1.0,
         "CONTEXT_FIDELITY": 0.9,
         "REFUSAL_CALIBRATION": 0.6,
+        "SYCOPHANCY_GRADIENT": 0.8,
+        "TEMPORAL_COHERENCE": 0.8,
+        "CONFIDENCE_CALIBRATION": 1.0,
+        "INSTRUCTION_DECAY": 0.6,
     },
     # "raw" profile: equal weights, no profile bias
     "raw": {},
