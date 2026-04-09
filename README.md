@@ -12,6 +12,7 @@
 <p align="center">
   <a href="#tui">TUI</a> &bull;
   <a href="#dashboard">Dashboard</a> &bull;
+  <a href="#public-leaderboard">Leaderboard</a> &bull;
   <a href="#what-it-tests">What It Tests</a> &bull;
   <a href="#trust-scoring">Trust Scoring</a> &bull;
   <a href="#profiles">Profiles</a> &bull;
@@ -44,7 +45,7 @@ pip install gauntlet-cli
 gauntlet
 ```
 
-No cloud. No LLM-as-judge. Every pass/fail is deterministic. **18 dynamic probe factories** randomize values each run to prevent gaming.
+No LLM-as-judge. Every pass/fail is deterministic. **18 dynamic probe factories** randomize values each run to prevent gaming. Results feed a [public leaderboard](https://basaltlabs.app/gauntlet/leaderboard) with live rankings across the community.
 
 ---
 
@@ -83,7 +84,26 @@ Features:
 - **Trust Rankings**: persistent leaderboard across all comparisons
 - **Graph View**: force-directed relationship graph between models
 
-The dashboard runs entirely locally. No data leaves your machine.
+The dashboard runs locally. Benchmark scores (model name, grade, category scores) are shared with the [public leaderboard](https://basaltlabs.app/gauntlet/leaderboard) to build community rankings. No prompts, outputs, or personal data are sent -- only aggregate scores. See [Data & Privacy](#data--privacy) for details.
+
+## Public Leaderboard
+
+**Live at [basaltlabs.app/gauntlet/leaderboard](https://basaltlabs.app/gauntlet/leaderboard)**
+
+Every `gauntlet run` and `gauntlet compare` automatically contributes to the community leaderboard. Rankings are built from Elo ratings (comparisons) and averaged test scores (benchmarks) across all users worldwide.
+
+**What's on the leaderboard:**
+- **Elo Rankings**: win/loss/draw records from head-to-head comparisons
+- **Test Stats & Graphs**: animated sparklines showing score trends over time, per-category radar charts, rolling averages
+- **Live Data**: the `/gauntlet` landing page shows the top 5 models with live sparklines
+
+**API endpoints** (public, CORS-enabled):
+- `GET https://gauntlet.basaltlabs.app/api/leaderboard` -- Elo ratings JSON
+- `GET https://gauntlet.basaltlabs.app/api/leaderboard/history` -- aggregated test stats with sparkline data
+
+Data flows from every source: CLI, TUI, dashboard, and MCP. See [Data & Privacy](#data--privacy) for what is and isn't shared.
+
+---
 
 ### Speed Test
 
@@ -394,6 +414,26 @@ gauntlet discover
 # View persistent rankings
 gauntlet leaderboard
 ```
+
+## Data & Privacy
+
+Gauntlet shares **only aggregate benchmark scores** with the public leaderboard. Here's exactly what is and isn't sent:
+
+| Shared (public leaderboard) | NOT shared |
+|---|---|
+| Model name (e.g. "qwen3.5:4b") | Your prompts |
+| Overall score, trust score, grade | Model outputs or responses |
+| Per-category pass rates | Your IP address or identity |
+| Tokens/sec (hardware-relative) | API keys or credentials |
+| Source (cli/tui/dashboard/mcp) | File contents or system info |
+
+**All scoring runs locally.** The deterministic probes, verification logic, and grading happen on your machine. Only the final numeric scores are sent to populate the leaderboard.
+
+**MCP sessions** use temporary server-side state that is automatically deleted after completion (or after 1 hour if abandoned). No session data is retained long-term.
+
+**Opting out:** If you don't set `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` environment variables, nothing is sent anywhere. The leaderboard sync only activates when these are configured (which is only on the hosted Vercel deployment).
+
+---
 
 ## Contributing
 
