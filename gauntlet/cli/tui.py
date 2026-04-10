@@ -708,12 +708,20 @@ class RunScreen(Screen):
         from gauntlet.core.recommendation import generate_recommendation
         from datetime import datetime, timezone
 
+        import time as _time
+        _last_refresh = [0.0]  # mutable for closure
+
         def on_token(model: str, text: str, metrics):
             self._progress_data[model] = {
                 "tokens": metrics.total_tokens,
                 "tps": metrics.tokens_per_sec or 0.0,
                 "status": "running",
             }
+            # Throttle UI updates to max 5/sec to prevent flooding
+            now = _time.monotonic()
+            if now - _last_refresh[0] < 0.2:
+                return
+            _last_refresh[0] = now
             self.app.call_from_thread(self._refresh_progress, prompt)
 
         try:
@@ -1161,7 +1169,7 @@ class BenchmarkScreen(Screen):
             )
 
         try:
-            results, score = asyncio.run(run_gauntlet(
+            results, score, _trust = asyncio.run(run_gauntlet(
                 model_name=model_name,
                 provider="ollama",
                 profile="assistant",
@@ -1239,7 +1247,7 @@ class BenchmarkScreen(Screen):
                             t.append(f"      ", style=_TEXT)
                             t.append("FAIL", style=sev_style)
                             t.append(f"  {pr.probe_name}", style=_TEXT)
-                            t.append(f"  {pr.reason}\n", style=_MUTED)
+                            t.append(f"  {pr.reason or ''}\n", style=_MUTED)
 
         t.append("\n")
         t.append(f"  {score.summary}\n", style=_MUTED)
