@@ -836,17 +836,20 @@ async def run_benchmark_suite(
             bench = await asyncio.wait_for(test_fn(model_spec), timeout=90.0)
             result.results.append(bench)
         except asyncio.TimeoutError:
+            # Use the test's actual category, not "timeout"
+            test_cat = _TEST_CATEGORIES.get(test_fn.__name__, "other")
             result.results.append(BenchmarkResult(
                 name=test_name,
-                category="timeout", description=f"Test timed out after 90s",
+                category=test_cat, description=f"Test timed out after 90s",
                 model=model_spec, score=0, max_score=1, passed=False,
                 details={"error": "timeout"},
                 duration_s=90.0,
             ))
         except Exception as e:
+            test_cat = _TEST_CATEGORIES.get(test_fn.__name__, "other")
             result.results.append(BenchmarkResult(
                 name=test_name,
-                category="error", description=str(e),
+                category=test_cat, description=f"Error: {e}",
                 model=model_spec, score=0, max_score=1, passed=False,
                 details={"error": str(e)},
             ))

@@ -45,7 +45,7 @@ export default function QualityRadar({ result, isJudging }) {
       <div className="glass rounded-xl p-12 text-center min-h-[400px] flex flex-col items-center justify-center">
         <Target size={32} className="text-[var(--text-muted)] mb-3" />
         <p className="text-sm text-[var(--text-dim)]">Quality scores appear after evaluation</p>
-        <p className="text-[10px] text-[var(--text-muted)] mt-1">Run without --no-judge to enable</p>
+        <p className="text-[10px] text-[var(--text-muted)] mt-1">Compare two or more models to see quality breakdown</p>
       </div>
     )
   }

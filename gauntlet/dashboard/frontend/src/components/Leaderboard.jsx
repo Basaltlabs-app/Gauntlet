@@ -23,9 +23,9 @@ export default function Leaderboard({ data, result }) {
     <div className="space-y-8">
       <header>
         <h1 className="text-4xl md:text-5xl font-display font-bold tracking-tighter gradient-text-hero mb-2">
-          Trust Rankings
+          Local Rankings
         </h1>
-        <p className="text-[var(--text-muted)] uppercase tracking-[0.15em] text-sm font-display font-bold">Persistent across comparisons and benchmarks</p>
+        <p className="text-[var(--text-muted)] uppercase tracking-[0.15em] text-sm font-display font-bold">Elo ratings from head-to-head comparisons on this machine (K=32, base 1500)</p>
       </header>
       <div className="glass rounded-xl p-16 text-center flex flex-col items-center justify-center min-h-[400px]">
         <ListOrdered size={36} className="text-[var(--text-muted)] mb-4" />
@@ -43,9 +43,9 @@ export default function Leaderboard({ data, result }) {
       {/* Header */}
       <header>
         <h1 className="text-4xl md:text-5xl font-display font-bold tracking-tighter gradient-text-hero mb-2">
-          Trust Rankings
+          Local Rankings
         </h1>
-        <p className="text-[var(--text-muted)] uppercase tracking-[0.15em] text-sm font-display font-bold">Persistent across comparisons and benchmarks</p>
+        <p className="text-[var(--text-muted)] uppercase tracking-[0.15em] text-sm font-display font-bold">Elo ratings from head-to-head comparisons on this machine (K=32, base 1500)</p>
       </header>
 
       {/* Stats row */}
