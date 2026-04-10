@@ -583,7 +583,11 @@ class RunScreen(Screen):
             params = m.parameter_size or ""
             t.append(f"   {i}. ", style=_BRONZE)
             t.append(f"{m.name}", style=f"bold {_TEXT}")
-            t.append(f"  {size} {params}\n", style=_MUTED)
+            t.append(f"  {size} {params}", style=_MUTED)
+            warn = m.memory_warning
+            if warn:
+                t.append(f"  ⚠ {warn}", style=f"bold {_TERRA}")
+            t.append("\n")
 
         ml.update(t)
         default = "1,2" if len(models) >= 2 else "1"
@@ -709,7 +713,27 @@ class RunScreen(Screen):
         from datetime import datetime, timezone
 
         import time as _time
+        import threading
         _last_refresh = [0.0]  # mutable for closure
+        _run_active = [True]
+        _start_time = _time.monotonic()
+
+        def _heartbeat():
+            """Update footer with elapsed time so user knows it's not frozen."""
+            while _run_active[0]:
+                elapsed = _time.monotonic() - _start_time
+                mins, secs = divmod(int(elapsed), 60)
+                try:
+                    self.app.call_from_thread(
+                        self._update_footer,
+                        f"  Running comparison... {mins}:{secs:02d} elapsed  |  ESC cancel",
+                    )
+                except Exception:
+                    break
+                _time.sleep(2)
+
+        heartbeat = threading.Thread(target=_heartbeat, daemon=True)
+        heartbeat.start()
 
         def on_token(model: str, text: str, metrics):
             self._progress_data[model] = {
@@ -791,9 +815,11 @@ class RunScreen(Screen):
                 lb.update_from_comparison(result)
 
             self._comparison_result = result
+            _run_active[0] = False
             self.app.call_from_thread(self._show_results, result)
 
         except Exception as e:
+            _run_active[0] = False
             self.app.call_from_thread(self._show_run_error, str(e))
 
     def _update_footer(self, msg: str) -> None:
@@ -1059,7 +1085,11 @@ class BenchmarkScreen(Screen):
             params = m.parameter_size or ""
             t.append(f"   {i}. ", style=_SAGE)
             t.append(f"{m.name}", style=f"bold {_TEXT}")
-            t.append(f"  {size} {params}\n", style=_MUTED)
+            t.append(f"  {size} {params}", style=_MUTED)
+            warn = m.memory_warning
+            if warn:
+                t.append(f"  ⚠ {warn}", style=f"bold {_TERRA}")
+            t.append("\n")
 
         # Show available modules
         from gauntlet.core.module_runner import load_all_modules, list_modules as _list_mods
@@ -1120,6 +1150,12 @@ class BenchmarkScreen(Screen):
         self._progress_lines.append(
             "  Deterministic scoring, no LLM judge\n\n"
         )
+
+        # Warn about memory pressure
+        warn = model.memory_warning
+        if warn:
+            self._progress_lines.append(f"  ⚠ {warn}\n\n")
+
         self._refresh_progress()
         self.query_one("#bench-footer", Static).update(
             "  Gauntlet running (thinking models take 2-5 min per probe)..."
@@ -1153,7 +1189,29 @@ class BenchmarkScreen(Screen):
     @work(thread=True)
     def _do_gauntlet(self, model_name: str) -> None:
         import asyncio
+        import time as _time
+        import threading
         from gauntlet.core.module_runner import run_gauntlet
+
+        _run_active = [True]
+        _start_time = _time.monotonic()
+
+        def _heartbeat():
+            while _run_active[0]:
+                elapsed = _time.monotonic() - _start_time
+                mins, secs = divmod(int(elapsed), 60)
+                try:
+                    self.app.call_from_thread(
+                        lambda: self.query_one("#bench-footer", Static).update(
+                            f"  Gauntlet running... {mins}:{secs:02d} elapsed  |  ESC cancel"
+                        ),
+                    )
+                except Exception:
+                    break
+                _time.sleep(2)
+
+        heartbeat = threading.Thread(target=_heartbeat, daemon=True)
+        heartbeat.start()
 
         def on_progress(mod_name, current, total, status):
             self.app.call_from_thread(
@@ -1177,9 +1235,11 @@ class BenchmarkScreen(Screen):
                 config={"on_probe_complete": on_probe},
                 on_progress=on_progress,
             ))
+            _run_active[0] = False
             self.app.call_from_thread(self._show_gauntlet_results, model_name, results, score)
 
         except Exception as e:
+            _run_active[0] = False
             self.app.call_from_thread(self._show_bench_error, str(e))
 
     def _add_progress(self, line: str) -> None:
