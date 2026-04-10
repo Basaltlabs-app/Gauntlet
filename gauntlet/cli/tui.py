@@ -184,7 +184,8 @@ class SystemInfo(Static):
             pass
 
         result.append("  \u2502  ", style="#2a2a30")
-        result.append("v1.0.1", style=f"dim {_BRONZE}")
+        from gauntlet import __version__
+        result.append(f"v{__version__}", style=f"dim {_BRONZE}")
 
         result.append("\n\n")
 
@@ -1636,11 +1637,18 @@ class GauntletApp(App):
 
     @work(thread=True)
     def _check_update(self) -> None:
-        """Non-blocking update check. Shows notice in status bar if available."""
+        """Update check in worker thread. Waits up to 5s for PyPI on first run."""
         try:
-            from gauntlet.core.update_check import get_update_message
-            msg = get_update_message()
-            if msg:
+            from gauntlet.core.update_check import check_for_update, get_update_message
+            # Use blocking=True since we're already in a worker thread.
+            # This ensures first-run users see the notice (no stale cache yet).
+            latest = check_for_update(blocking=True, timeout=5.0)
+            if latest:
+                from gauntlet import __version__
+                msg = (
+                    f"Update available: v{__version__} \u2192 v{latest}. "
+                    f"Run: pipx upgrade gauntlet-cli"
+                )
                 self.app.call_from_thread(
                     self.query_one("#status-bar", Static).update,
                     f"[yellow]{msg}[/yellow]",

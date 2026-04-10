@@ -77,8 +77,15 @@ def _do_check() -> None:
         _write_cache(latest, __version__)
 
 
-def check_for_update() -> Optional[str]:
-    """Check if a newer version is available. Non-blocking.
+def check_for_update(blocking: bool = False, timeout: float = 5.0) -> Optional[str]:
+    """Check if a newer version is available.
+
+    Args:
+        blocking: If True, wait up to ``timeout`` seconds for the network
+                  fetch to complete on first run.  Safe to call from a
+                  worker thread (never call with blocking=True from the
+                  main/UI thread).
+        timeout:  Max seconds to wait when blocking.
 
     Returns the latest version string if an update is available,
     or None if current version is up to date (or check failed).
@@ -98,7 +105,17 @@ def check_for_update() -> Optional[str]:
     thread = threading.Thread(target=_do_check, daemon=True)
     thread.start()
 
-    # First run returns None (check is in progress).
+    if blocking:
+        # Wait for the fetch to finish, then read the cache
+        thread.join(timeout=timeout)
+        cached = _read_cache()
+        if cached:
+            latest = cached.get("latest", __version__)
+            if _parse_version(latest) > _parse_version(__version__):
+                return latest
+        return None
+
+    # Non-blocking: first run returns None (check is in progress).
     # Next invocation will have cached data.
     return None
 
@@ -112,8 +129,8 @@ def get_update_message() -> Optional[str]:
         latest = check_for_update()
         if latest:
             return (
-                f"Update available: v{__version__} -> v{latest}. "
-                f"Run: pip install --upgrade gauntlet-cli"
+                f"Update available: v{__version__} \u2192 v{latest}. "
+                f"Run: pipx upgrade gauntlet-cli"
             )
     except Exception:
         pass
