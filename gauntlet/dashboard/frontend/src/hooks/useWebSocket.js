@@ -40,6 +40,8 @@ export function useWebSocket(url) {
   const wsRef = useRef(null)
   const reconnectRef = useRef(null)
   const hasResultRef = useRef(false)
+  const reconnectAttempts = useRef(0)
+  const maxReconnects = 5
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
@@ -49,6 +51,7 @@ export function useWebSocket(url) {
 
     ws.onopen = () => {
       setStatus('connected')
+      reconnectAttempts.current = 0
     }
 
     ws.onmessage = (event) => {
@@ -251,9 +254,11 @@ export function useWebSocket(url) {
 
     ws.onclose = () => {
       setStatus('disconnected')
-      // Reconnect after 3s if we don't have a result yet
-      if (!hasResultRef.current) {
-        reconnectRef.current = setTimeout(() => connect(), 3000)
+      // Reconnect with backoff, max 5 attempts
+      if (!hasResultRef.current && reconnectAttempts.current < maxReconnects) {
+        reconnectAttempts.current += 1
+        const delay = Math.min(3000 * reconnectAttempts.current, 15000)
+        reconnectRef.current = setTimeout(() => connect(), delay)
       }
     }
 

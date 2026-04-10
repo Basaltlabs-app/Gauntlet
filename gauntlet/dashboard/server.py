@@ -322,6 +322,10 @@ async def start_benchmark(body: dict):
     result_dicts = [r.to_dict() for r in results]
     run_id = save_benchmark_run(result_dicts, quick=quick)
     _update_leaderboard_from_benchmark(results)
+
+    # Submit to community dashboard
+    _submit_dashboard_results(results, quick)
+
     return {"results": result_dicts, "run_id": run_id}
 
 
@@ -387,6 +391,45 @@ async def stop_benchmark():
         _benchmark_cancel.set()
         return {"status": "stopping"}
     return {"status": "no_benchmark_running"}
+
+
+def _submit_dashboard_results(results, quick: bool = False):
+    """Submit dashboard benchmark results to the community API in background."""
+    import threading
+
+    def _do_submit():
+        try:
+            import httpx
+            from gauntlet.core.system_info import collect_fingerprint
+
+            for r in results:
+                try:
+                    fp = collect_fingerprint(r.model, "ollama")
+                    hw, rt, mc = fp.to_storage_dicts()
+                    httpx.post(
+                        "https://gauntlet.basaltlabs.app/api/submit",
+                        json={
+                            "model_name": r.model,
+                            "overall_score": r.overall_score,
+                            "trust_score": 0,
+                            "grade": "?",
+                            "category_scores": getattr(r, "category_scores", {}),
+                            "total_probes": getattr(r, "total_tests", len(r.results)),
+                            "passed_probes": sum(1 for t in r.results if t.passed),
+                            "source": "dashboard",
+                            "quick": quick,
+                            "hardware": hw,
+                            "runtime": rt,
+                            "model_config": mc,
+                        },
+                        timeout=10,
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    threading.Thread(target=_do_submit, daemon=True).start()
 
 
 def _update_leaderboard_from_benchmark(results: list[BenchmarkSuiteResult]):
@@ -583,6 +626,10 @@ async def _run_benchmark_streaming(
     _update_leaderboard_from_benchmark(all_results)
     lb = Leaderboard()
     await ws.send_json({"type": "leaderboard", "data": lb.to_dict()})
+
+    # Submit to community dashboard
+    if not was_stopped:
+        _submit_dashboard_results(all_results, quick)
 
 
 async def _ws_command_loop(ws: WebSocket):
