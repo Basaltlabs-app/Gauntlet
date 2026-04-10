@@ -1,8 +1,12 @@
 """Gauntlet MCP Server — run behavioral benchmarks on the connected AI.
 
 The AI connected to this MCP server IS the test subject. It calls
-`gauntlet_run` repeatedly, answering prompts and receiving scores,
-until the full benchmark is complete.
+`gauntlet_run()` to start, then `gauntlet_respond()` repeatedly with
+its answers until the benchmark is complete.
+
+Two-tool design prevents the "null response" bug where AI clients pass
+response=null instead of their actual answer (Optional[Any] schema
+makes null look valid).
 
 Supports multi-session: each concurrent client gets isolated state
 via a session_id token returned on first call.
@@ -19,7 +23,7 @@ import json
 import logging
 import os
 import uuid
-from typing import Any, Optional
+from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
@@ -158,69 +162,94 @@ def _normalize_model_name(name: str) -> str:
 
 mcp = FastMCP(
     "Gauntlet",
-    instructions="Behavioral benchmark. Call gauntlet_run() to start, answer prompts, repeat.",
+    instructions=(
+        "Behavioral benchmark — YOU are the test subject.\n"
+        "1. Call gauntlet_run(client_name='your-model-name') to start.\n"
+        "2. Read the PROMPT in the response.\n"
+        "3. Call gauntlet_respond(response='your actual answer text', session_id='...') to answer.\n"
+        "4. Repeat step 2-3 until the benchmark is complete.\n"
+        "IMPORTANT: gauntlet_respond() response must be your real answer, never null or empty."
+    ),
 )
 
 
 @mcp.tool()
 def gauntlet_run(
-    response: Optional[Any] = None,
-    session_id: Optional[str] = None,
-    quick: bool = False,
     client_name: str = "unknown",
+    quick: bool = False,
 ) -> str:
-    """Behavioral benchmark. Call with no args to start. Answer each prompt, call again with response + session_id. Repeat until done.
+    """Start a new Gauntlet behavioral benchmark. YOU are the test subject.
+
+    This returns a PROMPT. You must ANSWER it by calling gauntlet_respond()
+    with your answer text and the session_id shown below.
+
+    Flow: gauntlet_run() -> read prompt -> gauntlet_respond(answer, session_id) -> repeat
 
     Args:
-        response: Your answer. Omit on first call.
-        session_id: From first call. Omit on first call.
+        client_name: REQUIRED. Your model name (e.g. 'claude-sonnet-4-6', 'gpt-4o').
         quick: Quick suite (17 tests) vs full (56).
-        client_name: REQUIRED. Your model name (e.g. 'claude-sonnet-4-6', 'gpt-4o'). Results without a model name are rejected.
+    """
+    normalized = _normalize_model_name(client_name)
+    if not normalized:
+        return (
+            "ERROR: client_name is required. Pass your model name "
+            "(e.g. client_name='claude-sonnet-4-6' or 'gpt-4o'). "
+            "Results without a model name are not saved."
+        )
+
+    # Opportunistic cleanup: purge orphaned sessions older than 1 hour
+    _cleanup_stale_sessions()
+
+    sid = str(uuid.uuid4())[:8]
+    runner = GauntletRunner(quick=quick, client_name=normalized)
+    result = runner.advance()
+    _save_runner(sid, runner)
+
+    header = f"SESSION: {sid}\n{'=' * 50}\n\n"
+    return header + result["message"] + (
+        f"\n\n---\nIMPORTANT: To answer, call gauntlet_respond(response=\"<your answer>\", session_id=\"{sid}\")"
+    )
+
+
+@mcp.tool()
+def gauntlet_respond(
+    response: str,
+    session_id: str,
+) -> str:
+    """Submit your answer to the current Gauntlet prompt.
+
+    YOU are being tested. Put YOUR ACTUAL ANSWER to the prompt in 'response'.
+    Do NOT pass null or empty string — write the real answer.
+
+    After each call you will receive either the next prompt (call this tool again)
+    or your final score.
+
+    Args:
+        response: Your answer to the prompt. MUST be a non-empty string containing your actual response.
+        session_id: The session ID from gauntlet_run (e.g. 'a1b2c3d4').
     """
     # Coerce response to string — MCP transport may deserialize JSON strings
-    # into dicts/lists before they reach us (e.g. AI sends '{"name": "X"}'
-    # and the transport parses it into a dict)
-    if response is not None and not isinstance(response, str):
+    # into dicts/lists before they reach us
+    if not isinstance(response, str):
         response = json.dumps(response) if isinstance(response, (dict, list)) else str(response)
 
-    # Starting a new run
-    if response is None:
-        # Validate client_name: reject "unknown" so MCP results have an identity
-        normalized = _normalize_model_name(client_name)
-        if not normalized:
-            return (
-                "ERROR: client_name is required. Pass your model name "
-                "(e.g. client_name='claude-sonnet-4-6' or 'gpt-4o'). "
-                "Results without a model name are not saved."
-            )
+    if not response or not response.strip():
+        return "ERROR: response must be a non-empty string containing your answer to the prompt."
 
-        # Opportunistic cleanup: purge orphaned sessions older than 1 hour
-        _cleanup_stale_sessions()
-
-        sid = str(uuid.uuid4())[:8]
-        runner = GauntletRunner(quick=quick, client_name=normalized)
-        result = runner.advance()
-        _save_runner(sid, runner)
-
-        # Prepend session_id to the message so the AI knows to pass it back
-        header = f"SESSION: {sid}\n{'=' * 50}\n\n"
-        return header + result["message"]
-
-    # Continuing an existing run
-    if not session_id:
-        return "ERROR: Missing session_id. Pass the session_id from your first gauntlet_run call."
+    if not session_id or not session_id.strip():
+        return "ERROR: session_id is required. Pass the session_id from your gauntlet_run() call."
 
     runner = _get_runner(session_id)
     if not runner:
-        return f"ERROR: Unknown session '{session_id}'. Start a new run by calling gauntlet_run with no response."
+        return f"ERROR: Unknown session '{session_id}'. Start a new run by calling gauntlet_run()."
 
     if runner.finished:
-        return "This benchmark session is complete. Start a new run by calling gauntlet_run with no response."
+        return "This benchmark session is complete. Start a new run by calling gauntlet_run()."
 
     result = runner.advance(response)
 
     if result["status"] == "complete":
-        _save_mcp_results(result["result"], quick)
+        _save_mcp_results(result["result"], runner.quick)
         _delete_runner(session_id)
         return result["message"]
 
@@ -229,7 +258,9 @@ def gauntlet_run(
 
     # Save state after each advance (critical for serverless)
     _save_runner(session_id, runner)
-    return result["message"]
+    return result["message"] + (
+        f"\n\n---\nCall gauntlet_respond(response=\"<your answer>\", session_id=\"{session_id}\")"
+    )
 
 
 @mcp.tool()
