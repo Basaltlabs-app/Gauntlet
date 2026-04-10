@@ -1236,6 +1236,32 @@ class BenchmarkScreen(Screen):
                 on_progress=on_progress,
             ))
             _run_active[0] = False
+
+            # Save to local benchmark history (same as CLI + dashboard)
+            try:
+                from gauntlet.core.benchmark_history import save_benchmark_run
+                run_data = {
+                    "model": model_name,
+                    "overall_score": score.overall_score,
+                    "overall_grade": score.overall_grade,
+                    "total_probes": score.total_probes,
+                    "passed_probes": score.passed_probes,
+                    "critical_failures": score.critical_failures,
+                    "module_scores": [
+                        {
+                            "module_name": ms.module_name,
+                            "score": ms.score,
+                            "grade": ms.grade,
+                            "passed": ms.passed,
+                            "total": ms.total,
+                        }
+                        for ms in score.module_scores
+                    ],
+                }
+                save_benchmark_run([run_data], quick=self._quick)
+            except Exception:
+                pass
+
             self.app.call_from_thread(self._show_gauntlet_results, model_name, results, score)
 
         except Exception as e:
