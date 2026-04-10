@@ -83,6 +83,76 @@ def _cleanup_stale_sessions() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Model name normalization for MCP results
+# ---------------------------------------------------------------------------
+
+# Common aliases -> canonical name
+_MODEL_ALIASES: dict[str, str] = {
+    "opus": "claude-opus",
+    "opus 4": "claude-opus-4",
+    "opus 4.6": "claude-opus-4-6",
+    "claude opus": "claude-opus",
+    "claude opus 4": "claude-opus-4",
+    "claude opus 4.6": "claude-opus-4-6",
+    "claude-opus-4-6 (1m context)": "claude-opus-4-6",
+    "claude-opus-4-6 1m": "claude-opus-4-6",
+    "sonnet": "claude-sonnet",
+    "sonnet 4": "claude-sonnet-4",
+    "claude sonnet": "claude-sonnet",
+    "claude-sonnet-4-20250514": "claude-sonnet-4",
+    "haiku": "claude-haiku",
+    "claude haiku": "claude-haiku",
+    "gpt4": "gpt-4",
+    "gpt4o": "gpt-4o",
+    "gpt 4o": "gpt-4o",
+    "gpt-4-turbo": "gpt-4-turbo",
+    "gemini": "gemini-pro",
+    "gemini pro": "gemini-pro",
+    "gemini flash": "gemini-flash",
+}
+
+
+def _normalize_model_name(name: str) -> str:
+    """Normalize a model name to a canonical form.
+
+    Returns empty string if the name is invalid (unknown, empty, too short).
+    """
+    if not name or not name.strip():
+        return ""
+
+    cleaned = name.strip().lower()
+
+    # Reject generic/unknown names
+    if cleaned in ("unknown", "test", "model", "ai", "assistant", "bot", "llm"):
+        return ""
+
+    # Check alias table
+    if cleaned in _MODEL_ALIASES:
+        return _MODEL_ALIASES[cleaned]
+
+    # Remove common suffixes that add noise
+    for suffix in (" (1m context)", " 1m context", " (1m)", " context"):
+        if cleaned.endswith(suffix):
+            cleaned = cleaned[:-len(suffix)].strip()
+
+    # Replace spaces and underscores with hyphens for consistency
+    cleaned = cleaned.replace(" ", "-").replace("_", "-")
+
+    # Remove consecutive hyphens
+    while "--" in cleaned:
+        cleaned = cleaned.replace("--", "-")
+
+    # Strip leading/trailing hyphens
+    cleaned = cleaned.strip("-")
+
+    # Must be at least 3 chars to be a valid model name
+    if len(cleaned) < 3:
+        return ""
+
+    return cleaned
+
+
+# ---------------------------------------------------------------------------
 # MCP Server
 # ---------------------------------------------------------------------------
 
@@ -105,7 +175,7 @@ def gauntlet_run(
         response: Your answer. Omit on first call.
         session_id: From first call. Omit on first call.
         quick: Quick suite (17 tests) vs full (56).
-        client_name: Your model name.
+        client_name: REQUIRED. Your model name (e.g. 'claude-sonnet-4-6', 'gpt-4o'). Results without a model name are rejected.
     """
     # Coerce response to string — MCP transport may deserialize JSON strings
     # into dicts/lists before they reach us (e.g. AI sends '{"name": "X"}'
@@ -115,11 +185,20 @@ def gauntlet_run(
 
     # Starting a new run
     if response is None:
+        # Validate client_name: reject "unknown" so MCP results have an identity
+        normalized = _normalize_model_name(client_name)
+        if not normalized:
+            return (
+                "ERROR: client_name is required. Pass your model name "
+                "(e.g. client_name='claude-sonnet-4-6' or 'gpt-4o'). "
+                "Results without a model name are not saved."
+            )
+
         # Opportunistic cleanup: purge orphaned sessions older than 1 hour
         _cleanup_stale_sessions()
 
         sid = str(uuid.uuid4())[:8]
-        runner = GauntletRunner(quick=quick, client_name=client_name)
+        runner = GauntletRunner(quick=quick, client_name=normalized)
         result = runner.advance()
         _save_runner(sid, runner)
 
