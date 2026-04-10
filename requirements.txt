@@ -1,2 +1,3 @@
-mcp>=1.0.0
-httpx>=0.25.0
+# Dependencies managed in pyproject.toml
+# Install with: pip install gauntlet-cli
+# For development: pip install -e ".[dev]"

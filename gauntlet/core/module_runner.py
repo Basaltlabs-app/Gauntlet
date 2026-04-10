@@ -9,9 +9,12 @@ This is the orchestration layer. It:
 
 from __future__ import annotations
 
+import logging
 from typing import Callable, Optional
 
 from gauntlet.core.client import ChatClient
+
+logger = logging.getLogger("gauntlet.module_runner")
 from gauntlet.core.modules.base import GauntletModule, ModuleResult, ModuleScore
 from gauntlet.core.scorer import GauntletScore, compute_gauntlet_score
 from gauntlet.core.trust_score import TrustScore, compute_trust_score
@@ -252,8 +255,8 @@ async def run_gauntlet(
             model_name, provider, final_score, trust,
             list(all_scores), list(all_results), quick,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Community leaderboard submission failed: %s", e)
 
     return all_results, final_score, trust
 
@@ -345,8 +348,8 @@ def _submit_to_community(
                 "runtime": rt,
                 "model_config": mc,
             })
-        except Exception:
-            pass  # Non-blocking, non-fatal
+        except Exception as e:
+            logger.warning("Background community submission failed: %s", e)
 
     # Run in background thread so it never delays the CLI
     threading.Thread(target=_do_submit, daemon=True).start()

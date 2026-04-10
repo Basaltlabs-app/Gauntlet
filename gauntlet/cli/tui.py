@@ -38,6 +38,14 @@ _MAUVE = "#a87c94"
 _TERRA = "#c27065"
 _TEAL = "#5da4a8"
 _KHAKI = "#9b8e78"
+
+# ---------------------------------------------------------------------------
+# Layout / animation constants
+# ---------------------------------------------------------------------------
+
+_ANIMATION_PERIOD = 80          # ticks for one full logo colour sweep
+_MAX_DISPLAY_MODELS = 8         # models shown before "+N more" in SystemInfo
+
 _BG = "#0c0d12"
 _CARD = "#14151a"
 _BORDER = "#1e2028"
@@ -75,7 +83,7 @@ class AnimatedLogo(Static):
     def render(self) -> Text:
         t = self._tick
         result = Text()
-        phase = (t % 80) / 80.0 * 2 * math.pi
+        phase = (t % _ANIMATION_PERIOD) / _ANIMATION_PERIOD * 2 * math.pi
 
         for line in LOGO_LINES:
             for col_idx, ch in enumerate(line):
@@ -192,7 +200,7 @@ class SystemInfo(Static):
         # Model list
         if self._models:
             result.append("  INSTALLED MODELS\n", style=f"bold {_MUTED}")
-            for m in self._models[:8]:
+            for m in self._models[:_MAX_DISPLAY_MODELS]:
                 name = m.get("name", "?")
                 size = m.get("size_gb")
                 params = m.get("parameter_size", "")
@@ -203,8 +211,8 @@ class SystemInfo(Static):
                 if params:
                     result.append(f"  {params}", style=_MUTED)
                 result.append("\n")
-            if len(self._models) > 8:
-                result.append(f"  +{len(self._models) - 8} more\n", style=_MUTED)
+            if len(self._models) > _MAX_DISPLAY_MODELS:
+                result.append(f"  +{len(self._models) - _MAX_DISPLAY_MODELS} more\n", style=_MUTED)
         elif self.ollama_status == "offline":
             result.append("  No models found\n", style=f"dim {_GOLD}")
             result.append("  Is Ollama running?\n", style=_MUTED)

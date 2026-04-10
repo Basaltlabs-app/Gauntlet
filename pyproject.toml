@@ -27,18 +27,22 @@ classifiers = [
 ]
 
 dependencies = [
-    "typer>=0.9.0",
-    "rich>=13.0.0",
-    "textual>=0.40.0",
-    "httpx>=0.25.0",
-    "psutil>=5.9.0",
-    "fastapi>=0.100.0",
-    "uvicorn>=0.23.0",
-    "websockets>=12.0",
-    "mcp>=1.0.0",
+    "typer>=0.9.0,<1.0",
+    "rich>=13.0.0,<14.0",
+    "textual>=0.40.0,<1.0",
+    "httpx>=0.25.0,<1.0",
+    "psutil>=5.9.0,<7.0",
+    "fastapi>=0.100.0,<1.0",
+    "uvicorn>=0.23.0,<1.0",
+    "websockets>=12.0,<14.0",
+    "mcp>=1.0.0,<2.0",
 ]
 
 [project.optional-dependencies]
+anthropic = ["anthropic>=0.18.0"]
+openai = ["openai>=1.0.0"]
+google = ["google-generativeai>=0.3.0"]
+all-providers = ["anthropic>=0.18.0", "openai>=1.0.0", "google-generativeai>=0.3.0"]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21.0",

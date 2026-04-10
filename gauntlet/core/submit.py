@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 from typing import Optional
 
 import httpx
@@ -19,7 +20,7 @@ from gauntlet import __version__
 logger = logging.getLogger("gauntlet.submit")
 
 _COMMUNITY_API = "https://gauntlet.basaltlabs.app/api/submit"
-_SUBMIT_KEY = "gauntlet-community-2026"
+_SUBMIT_KEY = os.environ.get("GAUNTLET_SUBMIT_KEY", "gauntlet-community-2026")
 
 
 def _sign_payload(body_bytes: bytes) -> str:

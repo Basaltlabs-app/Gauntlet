@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import signal
 import socket
@@ -12,6 +13,17 @@ import sys
 import webbrowser
 from pathlib import Path
 from typing import Optional, Callable
+
+logger = logging.getLogger("gauntlet.dashboard")
+
+
+def _safe_error(e: Exception) -> str:
+    """Return a sanitized error message safe for client display."""
+    msg = str(e)
+    # Strip file paths and potential secrets
+    if "/" in msg or "\\" in msg:
+        return type(e).__name__ + ": internal error"
+    return msg[:200]
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -42,6 +54,7 @@ app = FastAPI(title="Gauntlet Dashboard")
 # ---------------------------------------------------------------------------
 
 _connected_clients: set[int] = set()
+_clients_lock = asyncio.Lock()
 _client_counter: int = 0
 _shutdown_task: Optional[asyncio.Task] = None
 _server_ref: Optional[uvicorn.Server] = None
@@ -59,12 +72,13 @@ def _notify_event(msg: str):
     if _on_event:
         _on_event(msg)
 
-def _register_client() -> int:
+async def _register_client() -> int:
     """Register a new WebSocket client. Returns client ID."""
     global _client_counter, _shutdown_task
     _client_counter += 1
     client_id = _client_counter
-    _connected_clients.add(client_id)
+    async with _clients_lock:
+        _connected_clients.add(client_id)
 
     # Cancel any pending shutdown
     if _shutdown_task and not _shutdown_task.done():
@@ -76,10 +90,11 @@ def _register_client() -> int:
     _notify_event(f"Client #{client_id} connected ({len(_connected_clients)} total)")
     return client_id
 
-def _unregister_client(client_id: int):
+async def _unregister_client(client_id: int):
     """Unregister a WebSocket client. Starts auto-shutdown if none remain."""
     global _shutdown_task
-    _connected_clients.discard(client_id)
+    async with _clients_lock:
+        _connected_clients.discard(client_id)
     _notify_client_change()
     _notify_event(f"Client #{client_id} disconnected ({len(_connected_clients)} remaining)")
 
@@ -115,7 +130,7 @@ def _is_port_in_use(port: int, host: str = "127.0.0.1") -> bool:
 
 
 def _kill_port(port: int) -> bool:
-    """Kill whatever process is using the given port. Returns True if killed."""
+    """Kill Gauntlet-related processes using the given port. Returns True if killed."""
     try:
         result = subprocess.run(
             ["lsof", "-ti", f":{port}"],
@@ -127,25 +142,37 @@ def _kill_port(port: int) -> bool:
         if not pids:
             return False
 
+        killed_any = False
         for pid in pids:
             try:
+                # Verify the process is ours before killing
+                ps_result = subprocess.run(
+                    ["ps", "-p", pid, "-o", "command="],
+                    capture_output=True, text=True, timeout=3,
+                )
+                cmd = ps_result.stdout.strip().lower()
+                if not any(name in cmd for name in ("uvicorn", "python", "gauntlet", "fastapi")):
+                    logger.warning("Skipping PID %s (unrecognized: %s)", pid, cmd[:80])
+                    continue
+
                 os.kill(int(pid), signal.SIGTERM)
+                killed_any = True
             except (ProcessLookupError, ValueError):
                 pass
 
-        # Give processes a moment to exit gracefully
-        import time
-        time.sleep(0.5)
+        if killed_any:
+            import time
+            time.sleep(0.5)
+            # Force kill any that survived
+            for pid in pids:
+                try:
+                    os.kill(int(pid), signal.SIGKILL)
+                except (ProcessLookupError, ValueError):
+                    pass
 
-        # Force kill any that survived
-        for pid in pids:
-            try:
-                os.kill(int(pid), signal.SIGKILL)
-            except (ProcessLookupError, ValueError):
-                pass
-
-        return True
-    except Exception:
+        return killed_any
+    except Exception as e:
+        logger.warning("Port cleanup failed: %s", e)
         return False
 
 
@@ -571,11 +598,12 @@ async def _run_benchmark_streaming(
 
             except Exception as e:
                 from gauntlet.core.benchmarks import BenchmarkResult
+                safe_msg = _safe_error(e)
                 br = BenchmarkResult(
                     name=test_name, category="error",
-                    description=str(e),
+                    description=safe_msg,
                     model=model_spec, score=0, max_score=1, passed=False,
-                    details={"error": str(e)},
+                    details={"error": safe_msg},
                 )
                 suite_result.results.append(br)
                 await ws.send_json({
@@ -587,7 +615,7 @@ async def _run_benchmark_streaming(
                     "score_pct": 0,
                     "duration_s": None,
                     "category": "error",
-                    "description": str(e),
+                    "description": safe_msg,
                 })
 
         suite_result.compute_scores()
@@ -701,7 +729,7 @@ async def websocket_endpoint(ws: WebSocket):
         {"type": "leaderboard", "data": {...}}
     """
     await ws.accept()
-    client_id = _register_client()
+    client_id = await _register_client()
 
     try:
         # Send config
@@ -879,11 +907,11 @@ async def websocket_endpoint(ws: WebSocket):
         pass
     except Exception as e:
         try:
-            await ws.send_json({"type": "error", "message": str(e)})
+            await ws.send_json({"type": "error", "message": _safe_error(e)})
         except Exception:
             pass
     finally:
-        _unregister_client(client_id)
+        await _unregister_client(client_id)
 
 
 def _find_frontend_dist() -> Optional[Path]:

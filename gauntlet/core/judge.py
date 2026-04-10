@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import TYPE_CHECKING, Optional
 
 from gauntlet.core.config import resolve_model
 from gauntlet.core.metrics import ComparisonResult, ModelMetrics
 from gauntlet.core.providers.factory import create_provider
+
+logger = logging.getLogger("gauntlet.judge")
 
 if TYPE_CHECKING:
     from gauntlet.core.prompt_classifier import PromptClassification
@@ -218,8 +221,9 @@ def _parse_judge_response(
 
     try:
         data = json.loads(text)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
         # Fallback: return equal scores
+        logger.warning("Failed to parse judge JSON response: %s", e)
         model_names = [m.model for m in models]
         return {
             "results": [
@@ -378,8 +382,8 @@ async def _pick_judge_model(models: list[ModelMetrics]) -> str:
                 # Skip models that are being compared
                 if name not in compared_models and name.split(":")[0] not in compared_models:
                     return name
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to auto-select judge model: %s", e)
 
     # Fallback: use the first compared model as judge (not ideal but works)
     return models[0].model if models else "llama3.2"

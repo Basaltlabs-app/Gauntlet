@@ -10,6 +10,7 @@ Returns immediately with cached data or None.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from pathlib import Path
@@ -17,6 +18,8 @@ from typing import Optional
 
 from gauntlet import __version__
 from gauntlet.core.config import GAUNTLET_DIR
+
+logger = logging.getLogger("gauntlet.update_check")
 
 
 _CACHE_FILE = GAUNTLET_DIR / "update_cache.json"
@@ -40,8 +43,8 @@ def _read_cache() -> Optional[dict]:
             data = json.loads(_CACHE_FILE.read_text())
             if time.time() - data.get("checked_at", 0) < _CACHE_TTL_SECONDS:
                 return data
-    except (json.JSONDecodeError, OSError):
-        pass
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("Failed to read update cache: %s", e)
     return None
 
 
@@ -54,8 +57,8 @@ def _write_cache(latest: str, current: str) -> None:
             "current": current,
             "checked_at": time.time(),
         }))
-    except OSError:
-        pass  # read-only filesystem (Vercel), skip
+    except OSError as e:
+        logger.warning("Failed to write update cache (read-only filesystem?): %s", e)
 
 
 def _fetch_latest_version() -> Optional[str]:
@@ -65,8 +68,8 @@ def _fetch_latest_version() -> Optional[str]:
         resp = httpx.get(_PYPI_URL, timeout=_TIMEOUT, follow_redirects=True)
         if resp.status_code == 200:
             return resp.json()["info"]["version"]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to fetch latest version from PyPI: %s", e)
     return None
 
 
@@ -132,6 +135,6 @@ def get_update_message() -> Optional[str]:
                 f"Update available: v{__version__} \u2192 v{latest}. "
                 f"Run: pipx upgrade gauntlet-cli"
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Update check failed: %s", e)
     return None

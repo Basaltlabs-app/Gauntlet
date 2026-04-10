@@ -200,7 +200,7 @@ def gauntlet_run(
     # Opportunistic cleanup: purge orphaned sessions older than 1 hour
     _cleanup_stale_sessions()
 
-    sid = str(uuid.uuid4())[:8]
+    sid = str(uuid.uuid4())
     runner = GauntletRunner(quick=quick, client_name=normalized)
     result = runner.advance()
     _save_runner(sid, runner)
@@ -314,8 +314,8 @@ def gauntlet_leaderboard() -> str:
         from gauntlet.mcp.leaderboard_store import get_leaderboard, is_available
         if is_available():
             models = get_leaderboard()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to fetch Supabase leaderboard: %s", e)
 
     if not models:
         from gauntlet.core.leaderboard import Leaderboard

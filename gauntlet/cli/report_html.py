@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import html
 import math
-from gauntlet.core.trust_score import TrustScore
+from gauntlet.core.trust_score import TrustScore, _MODULE_DEDUCTION_CAP
 from gauntlet.core.report import Finding, MODULE_LABELS
 from gauntlet.core.modules.base import ModuleResult
 
@@ -114,7 +114,7 @@ def _generate_waterfall_svg(trust: TrustScore, width: int = 500, height: int = 2
     )
 
     for i, (mod_name, ded) in enumerate(items):
-        capped = min(ded, 25)
+        capped = min(ded, _MODULE_DEDUCTION_CAP)
         x = x_start + (i + 1) * (bar_width + 10)
         old_running = running
         running -= capped

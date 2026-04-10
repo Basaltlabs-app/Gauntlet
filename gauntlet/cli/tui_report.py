@@ -15,6 +15,13 @@ from gauntlet.core.trust_score import TrustScore
 from gauntlet.core.report import MODULE_LABELS
 from gauntlet.core.modules.base import ModuleResult, Severity
 
+# ---------------------------------------------------------------------------
+# Display constants
+# ---------------------------------------------------------------------------
+
+_MAX_NAME_LEN = 36              # probe name truncation threshold
+_MAX_REASON_LEN = 60            # reason text truncation threshold
+_DETAIL_SEPARATOR_WIDTH = 90    # width of the horizontal rule in detail rows
 
 # ---------------------------------------------------------------------------
 # Severity icons and colors
@@ -44,14 +51,14 @@ class ProbeRow(Static):
 
         # Truncate probe name for display
         raw_name = pr.probe_name or ""
-        name = raw_name[:36]
-        if len(raw_name) > 36:
+        name = raw_name[:_MAX_NAME_LEN]
+        if len(raw_name) > _MAX_NAME_LEN:
             name += "…"
 
         # Truncate reason
         raw_reason = pr.reason or ""
-        reason = raw_reason[:60]
-        if len(raw_reason) > 60:
+        reason = raw_reason[:_MAX_REASON_LEN]
+        if len(raw_reason) > _MAX_REASON_LEN:
             reason += "…"
 
         text = (
@@ -121,7 +128,7 @@ class ModuleDetail(Container):
     def compose(self) -> ComposeResult:
         # Header row
         yield Static(
-            f"    [bold dim]{'─' * 90}[/bold dim]\n"
+            f"    [bold dim]{'─' * _DETAIL_SEPARATOR_WIDTH}[/bold dim]\n"
             f"    [bold]Probe[/bold]{' ' * 36}"
             f"[bold]Result[/bold]  [bold]Details[/bold]"
         )
@@ -146,7 +153,7 @@ class ModuleDetail(Container):
         else:
             yield Static(f"    [dim]└─ All probes passed[/dim]")
 
-        yield Static(f"    [bold dim]{'─' * 90}[/bold dim]")
+        yield Static(f"    [bold dim]{'─' * _DETAIL_SEPARATOR_WIDTH}[/bold dim]")
 
 
 class FindingLine(Static):

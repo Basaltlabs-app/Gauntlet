@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
 from gauntlet.core.config import LEADERBOARD_FILE, ensure_gauntlet_dir
 from gauntlet.core.metrics import ComparisonResult
+
+logger = logging.getLogger("gauntlet.leaderboard")
 
 
 # Rating constants
@@ -89,7 +92,8 @@ class Leaderboard:
                 for entry in data.get("models", []):
                     rating = ModelRating.from_dict(entry)
                     self.ratings[rating.name] = rating
-            except (json.JSONDecodeError, KeyError):
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.warning("Failed to load leaderboard from disk: %s", e)
                 self.ratings = {}
 
     def _save(self) -> None:
@@ -107,8 +111,8 @@ class Leaderboard:
             from gauntlet.mcp.leaderboard_store import sync_from_local, is_available
             if is_available():
                 sync_from_local(data)
-        except Exception:
-            pass  # Don't break local leaderboard if Supabase sync fails
+        except Exception as e:
+            logger.warning("Supabase leaderboard sync failed: %s", e)
 
     def _get_or_create(self, model_name: str) -> ModelRating:
         """Get existing rating or create new one."""

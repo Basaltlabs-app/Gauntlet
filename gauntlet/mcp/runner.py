@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
+from gauntlet.core.trust_score import _MODULE_DEDUCTION_CAP
 from gauntlet.mcp.probes import get_suite
 
 
@@ -288,7 +289,7 @@ class GauntletRunner:
     SEVERITY_MAX_DEDUCTION: dict[str, float] = {
         "CRITICAL": 8.0, "HIGH": 5.0, "MEDIUM": 3.0, "LOW": 1.0,
     }
-    _CATEGORY_DEDUCTION_CAP = 25.0
+    _CATEGORY_DEDUCTION_CAP = _MODULE_DEDUCTION_CAP
 
     @staticmethod
     def _letter_grade(score_pct: float, has_critical_failure: bool) -> str:
