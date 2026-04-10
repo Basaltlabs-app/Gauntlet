@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gauntlet-cli"
-version = "1.3.5"
+version = "1.3.6"
 description = "Behavioral reliability under pressure. Test how LLMs behave when things get hard."
 readme = "README.md"
 license = {text = "MIT"}
