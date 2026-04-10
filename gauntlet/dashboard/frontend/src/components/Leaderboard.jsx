@@ -29,8 +29,8 @@ export default function Leaderboard({ data, result }) {
       </header>
       <div className="glass rounded-xl p-16 text-center flex flex-col items-center justify-center min-h-[400px]">
         <ListOrdered size={36} className="text-[var(--text-muted)] mb-4" />
-        <p className="text-sm text-[var(--text-dim)]">No leaderboard data yet</p>
-        <p className="text-[10px] text-[var(--text-muted)] mt-1">Run comparisons or benchmarks to build rankings</p>
+        <p className="text-sm text-[var(--text-dim)]">No ranking data yet</p>
+        <p className="text-[10px] text-[var(--text-muted)] mt-1">Use the Compare tab to run two models on the same prompt. Rankings are built from Elo ratings after each head-to-head comparison.</p>
       </div>
     </div>
   )

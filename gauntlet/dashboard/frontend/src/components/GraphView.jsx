@@ -52,6 +52,16 @@ export default function GraphView({ result }) {
   const [hovered, setHovered] = useState(null)
   const models = result?.models || []
 
+  if (!models.length) {
+    return (
+      <div className="glass rounded-xl p-12 text-center">
+        <Network size={32} className="mx-auto text-[var(--text-muted)] mb-3" />
+        <p className="text-sm text-[var(--text-dim)]">Relationship graph appears after comparing models</p>
+        <p className="text-[10px] text-[var(--text-muted)] mt-1">Use the Compare tab to run two or more models on the same prompt</p>
+      </div>
+    )
+  }
+
   const nodes = useMemo(() => models.map((m, i) => ({
     id: m.model, score: m.overall_score || 5, color: getModelColor(i),
     isWinner: m.model === result?.winner, metrics: m,
