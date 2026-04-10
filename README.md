@@ -50,7 +50,7 @@ Gauntlet is a community-driven behavioral research platform. Every user who runs
 
 **How it scores**: fully deterministic (regex, pattern matching, AST parsing). No LLM-as-judge. 18 dynamic probe factories randomize values each run to prevent memorization.
 
-**What makes it different**: not a tool, a platform. Results from CLI, TUI, dashboard, and MCP all feed the same community dataset, filterable by hardware, quantization, and provider.
+**What makes it different**: not a tool, a platform. Results from CLI, TUI, and dashboard feed the community dataset with hardware metadata, filterable by GPU, RAM, quantization, and provider.
 
 ```bash
 pip install gauntlet-cli
@@ -106,7 +106,7 @@ Every test from every user on every hardware configuration feeds a shared, open 
 
 **Elo Rankings**: Win/loss/draw records from head-to-head `gauntlet compare` runs. Elo ratings update in real-time across all users.
 
-**MCP Self-Tests**: Results from AI models testing themselves via the MCP server. Kept separate from community hardware results because MCP runs on cloud infrastructure, not local hardware.
+**MCP Self-Tests**: Results from AI models testing themselves via the MCP server are stored separately and not displayed on the community dashboard. MCP runs on cloud infrastructure with self-reported model names, so the data lacks the hardware fingerprint and verified model metadata that community CLI runs provide.
 
 ### Filterable by Hardware
 
@@ -147,8 +147,8 @@ Read-only, CORS-enabled endpoints at `https://gauntlet.basaltlabs.app` for build
 | `quantization` | Q4, Q8, fp16 |
 | `provider` | ollama, openai, anthropic |
 | `os_platform` | darwin, linux, windows |
-| `source` | mcp (MCP self-tests only) |
-| `exclude_source` | mcp (community hardware only) |
+| `source` | cli, tui, dashboard, mcp |
+| `exclude_source` | mcp (default for community dashboard) |
 | `min_tests` | 3 (minimum submissions to include) |
 
 See [Data and Privacy](#data-and-privacy) for exactly what is and is not shared.
@@ -334,6 +334,8 @@ Add to your MCP client configuration (Claude Code, Cursor, Windsurf, etc.):
 Then instruct the AI: **"Run the gauntlet on yourself"**
 
 Same 109 probes. Same deterministic scoring. Same dynamic factories. The model under evaluation is also the executor.
+
+**Note on MCP data quality**: MCP results are stored separately from community CLI results. Because MCP runs on cloud serverless infrastructure, there is no local hardware fingerprint, and the model name is self-reported by the AI (not verified). For research-grade community data, use `gauntlet run` from the CLI, which detects the actual model, quantization, and hardware automatically.
 
 ---
 
