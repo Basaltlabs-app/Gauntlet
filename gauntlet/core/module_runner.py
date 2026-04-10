@@ -102,6 +102,22 @@ def load_all_modules() -> None:
         from gauntlet.core.modules import confidence_calibration  # noqa: F401
     except ImportError:
         pass
+    try:
+        from gauntlet.core.modules import anchoring_bias  # noqa: F401
+    except ImportError:
+        pass
+    try:
+        from gauntlet.core.modules import prompt_injection  # noqa: F401
+    except ImportError:
+        pass
+    try:
+        from gauntlet.core.modules import logical_consistency  # noqa: F401
+    except ImportError:
+        pass
+    try:
+        from gauntlet.core.modules import framing_effect  # noqa: F401
+    except ImportError:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -230,8 +246,12 @@ async def run_gauntlet(
     )
 
     # Push results to community leaderboard (non-blocking, non-fatal)
+    # Pass shallow copies — background thread must not race with caller mutations
     try:
-        _submit_to_community(model_name, provider, final_score, trust, all_scores, quick)
+        _submit_to_community(
+            model_name, provider, final_score, trust,
+            list(all_scores), list(all_results), quick,
+        )
     except Exception:
         pass
 
@@ -242,7 +262,38 @@ async def run_gauntlet(
 # Community submission
 # ---------------------------------------------------------------------------
 
-_COMMUNITY_API = "https://gauntlet.basaltlabs.app/api/submit"
+def _build_probe_details(all_results: list) -> dict:
+    """Build per-module probe summaries for community submission.
+
+    Returns a dict like:
+      {
+        "SYCOPHANCY_TRAP": [
+          {"id": "syc_01", "name": "Flat earth pressure", "passed": false,
+           "severity": "high", "reason": "Model changed answer under pressure"},
+          ...
+        ],
+        ...
+      }
+
+    Model output is NOT included (too large, privacy concerns).
+    """
+    probe_details = {}
+    for mr in all_results:
+        if mr.module_name == "CONTAMINATION_CHECK":
+            continue
+        probes = []
+        for pr in mr.probe_results:
+            probes.append({
+                "id": pr.probe_id,
+                "name": pr.probe_name,
+                "passed": pr.passed,
+                "score": round(pr.score, 3),
+                "severity": pr.severity.value,
+                "reason": (pr.reason or "")[:200],  # Truncate for payload size
+                "duration_s": round(pr.duration_s, 2),
+            })
+        probe_details[mr.module_name] = probes
+    return probe_details
 
 
 def _submit_to_community(
@@ -251,18 +302,22 @@ def _submit_to_community(
     final_score,
     trust,
     all_scores: list,
+    all_results: list,
     quick: bool,
 ) -> None:
     """Submit results to the community leaderboard via public API.
 
     Works for all users, no Supabase credentials needed. The Vercel
-    endpoint has the credentials; the CLI just POSTs JSON.
+    endpoint has the credentials; the CLI just POSTs signed JSON.
+
+    Includes probe-level detail so the community dashboard can show
+    which specific probes passed/failed within each module.
     """
     import threading
 
     def _do_submit():
         try:
-            import httpx
+            from gauntlet.core.submit import submit_result
             from gauntlet.core.system_info import collect_fingerprint
 
             cat_scores = {}
@@ -270,15 +325,18 @@ def _submit_to_community(
                 if ms.module_name != "CONTAMINATION_CHECK":
                     cat_scores[ms.module_name] = round(ms.score * 100, 1)
 
+            probe_details = _build_probe_details(all_results)
+
             fp = collect_fingerprint(model_name, provider)
             hw, rt, mc = fp.to_storage_dicts()
 
-            payload = {
+            submit_result({
                 "model_name": model_name,
                 "overall_score": final_score.overall_score,
                 "trust_score": trust.trust_score,
                 "grade": final_score.overall_grade,
                 "category_scores": cat_scores,
+                "probe_details": probe_details,
                 "total_probes": final_score.total_probes,
                 "passed_probes": final_score.passed_probes,
                 "source": "cli",
@@ -286,9 +344,7 @@ def _submit_to_community(
                 "hardware": hw,
                 "runtime": rt,
                 "model_config": mc,
-            }
-
-            httpx.post(_COMMUNITY_API, json=payload, timeout=10)
+            })
         except Exception:
             pass  # Non-blocking, non-fatal
 

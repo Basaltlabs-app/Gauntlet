@@ -481,6 +481,75 @@ def print_trust_report(
             border_style="yellow",
         ))
 
+    # Per-module probe breakdown
+    if module_results:
+        from gauntlet.core.modules.base import Severity
+        from gauntlet.core.report import MODULE_LABELS
+
+        console.print()
+        console.print("[bold]MODULE BREAKDOWN:[/bold]")
+
+        for mr in module_results:
+            if mr.module_name == "CONTAMINATION_CHECK":
+                continue
+
+            label = MODULE_LABELS.get(mr.module_name, mr.module_name)
+            rate = mr.pass_rate
+
+            if rate >= 0.9:
+                bar_color = "green"
+            elif rate >= 0.6:
+                bar_color = "yellow"
+            else:
+                bar_color = "red"
+
+            console.print(
+                f"\n  [{bar_color}]■[/{bar_color}] [bold]{label}[/bold]"
+                f"  [{bar_color}]{rate:.0%}[/{bar_color}]"
+                f"  [dim]({mr.passed_probes}/{mr.total_probes} passed)[/dim]"
+            )
+
+            # Show individual probes in a compact table
+            probe_table = Table(
+                show_header=True,
+                header_style="dim bold",
+                border_style="dim",
+                box=None,
+                padding=(0, 1),
+                pad_edge=False,
+            )
+            probe_table.add_column("", width=6)  # pass/fail
+            probe_table.add_column("Probe", min_width=30)
+            probe_table.add_column("Severity", width=10)
+            probe_table.add_column("Reason", ratio=1)
+
+            for pr in mr.probe_results:
+                if pr.passed:
+                    status = "[green]PASS[/green]"
+                else:
+                    status = "[red]FAIL[/red]"
+
+                sev_styles = {
+                    Severity.CRITICAL: "[bold red]CRIT[/bold red]",
+                    Severity.HIGH: "[red]HIGH[/red]",
+                    Severity.MEDIUM: "[yellow]MED[/yellow]",
+                    Severity.LOW: "[dim]LOW[/dim]",
+                }
+                sev = sev_styles.get(pr.severity, str(pr.severity.value))
+
+                reason = pr.reason[:80]
+                if len(pr.reason) > 80:
+                    reason += "…"
+
+                probe_table.add_row(
+                    f"  {status}",
+                    pr.probe_name,
+                    sev,
+                    f"[dim]{reason}[/dim]",
+                )
+
+            console.print(probe_table)
+
     # Findings
     console.print()
     console.print("[bold]FINDINGS:[/bold]")

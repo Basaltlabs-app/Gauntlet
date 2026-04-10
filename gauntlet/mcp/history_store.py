@@ -69,6 +69,7 @@ def record_test_result(
     source: str = "cli",
     quick: bool = False,
     fingerprint: Optional["SystemFingerprint"] = None,
+    probe_details: Optional[dict] = None,
 ) -> None:
     """Record a single model's test result to the history table.
 
@@ -76,6 +77,9 @@ def record_test_result(
         fingerprint: Optional SystemFingerprint with hardware/runtime/model metadata.
             When provided, stored as hardware, runtime, and model_config JSONB columns
             for community filtering (e.g. "show results from Apple Silicon with Q4").
+        probe_details: Optional per-module probe-level breakdown. Dict mapping
+            module_name -> list of {id, name, passed, score, severity, reason, duration_s}.
+            Stored as JSONB for drill-down display on the community dashboard.
     """
     if not is_available():
         return
@@ -100,6 +104,10 @@ def record_test_result(
             payload["hardware"] = hw
             payload["runtime"] = rt
             payload["model_config"] = mc
+
+        # Attach probe-level detail for drill-down display
+        if probe_details:
+            payload["probe_details"] = probe_details
 
         resp = httpx.post(
             _table_url(),
@@ -171,7 +179,7 @@ def _get_filtered_history(
 
     try:
         params: dict = {
-            "select": "model_name,timestamp,overall_score,trust_score,grade,category_scores,total_probes,passed_probes,source,quick,hardware,runtime,model_config",
+            "select": "model_name,timestamp,overall_score,trust_score,grade,category_scores,total_probes,passed_probes,source,quick,hardware,runtime,model_config,probe_details",
             "order": "timestamp.desc",
             "limit": str(limit),
         }
@@ -516,6 +524,19 @@ def get_model_detail(model_name: str) -> Optional[dict]:
                 "trust_score": row.get("trust_score"),
             })
 
+        # Aggregate probe-level detail from most recent test that has it.
+        # Takes the newest probe results per module across recent runs.
+        probe_averages: dict[str, list[dict]] = {}
+        for row in model_rows:
+            pd = row.get("probe_details")
+            if pd and isinstance(pd, dict):
+                for mod_name, probes in pd.items():
+                    if mod_name not in probe_averages and isinstance(probes, list):
+                        probe_averages[mod_name] = probes
+                # Break once every category with an average also has probe detail
+                if probe_averages.keys() >= cat_avgs.keys():
+                    break
+
         return {
             "name": model_name,
             "overall": {
@@ -525,6 +546,7 @@ def get_model_detail(model_name: str) -> Optional[dict]:
                 "test_count": len(model_rows),
             },
             "category_averages": cat_avgs,
+            "probe_details": probe_averages if probe_averages else None,
             "hardware_breakdown": breakdown,
             "history": list(reversed(history)),
         }

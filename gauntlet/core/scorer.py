@@ -34,6 +34,10 @@ PROFILES: dict[str, dict[str, float]] = {
         "TEMPORAL_COHERENCE": 0.9,
         "CONFIDENCE_CALIBRATION": 0.7,
         "INSTRUCTION_DECAY": 0.8,
+        "ANCHORING_BIAS": 0.6,
+        "PROMPT_INJECTION": 1.0,
+        "LOGICAL_CONSISTENCY": 0.5,
+        "FRAMING_EFFECT": 0.7,
     },
     "coder": {
         "AMBIGUITY_HONESTY": 0.5,
@@ -48,6 +52,10 @@ PROFILES: dict[str, dict[str, float]] = {
         "TEMPORAL_COHERENCE": 0.6,
         "CONFIDENCE_CALIBRATION": 0.5,
         "INSTRUCTION_DECAY": 1.0,
+        "ANCHORING_BIAS": 0.4,
+        "PROMPT_INJECTION": 0.9,
+        "LOGICAL_CONSISTENCY": 1.0,
+        "FRAMING_EFFECT": 0.4,
     },
     "researcher": {
         "AMBIGUITY_HONESTY": 1.0,
@@ -62,6 +70,10 @@ PROFILES: dict[str, dict[str, float]] = {
         "TEMPORAL_COHERENCE": 0.8,
         "CONFIDENCE_CALIBRATION": 1.0,
         "INSTRUCTION_DECAY": 0.6,
+        "ANCHORING_BIAS": 0.9,
+        "PROMPT_INJECTION": 0.5,
+        "LOGICAL_CONSISTENCY": 0.9,
+        "FRAMING_EFFECT": 1.0,
     },
     # "raw" profile: equal weights, no profile bias
     "raw": {},

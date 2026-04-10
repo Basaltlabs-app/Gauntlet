@@ -1,25 +1,81 @@
 """TUI Report Screen -- interactive trust report in the terminal.
 
 Built on Textual. Shows bar charts for trust dimensions,
-drill-down into probes, and side-by-side comparison.
+click-to-expand probe drill-down, and side-by-side comparison.
 """
 
 from __future__ import annotations
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
-from textual.widgets import Header, Footer, Static, Label
+from textual.widgets import Header, Footer, Static
 from textual.screen import Screen
 
 from gauntlet.core.trust_score import TrustScore
 from gauntlet.core.report import MODULE_LABELS
-from gauntlet.core.modules.base import ModuleResult
+from gauntlet.core.modules.base import ModuleResult, Severity
 
 
-class TrustBar(Static):
-    """A single horizontal bar for a module pass rate."""
+# ---------------------------------------------------------------------------
+# Severity icons and colors
+# ---------------------------------------------------------------------------
 
-    def __init__(self, label: str, value: float, max_width: int = 40) -> None:
+_SEVERITY_STYLE = {
+    Severity.CRITICAL: ("⬤", "bold red"),
+    Severity.HIGH: ("⬤", "red"),
+    Severity.MEDIUM: ("◉", "yellow"),
+    Severity.LOW: ("○", "dim"),
+}
+
+
+class ProbeRow(Static):
+    """A single probe result row inside the expanded module detail."""
+
+    def __init__(self, probe_result) -> None:
+        pr = probe_result
+        icon, sev_style = _SEVERITY_STYLE.get(
+            pr.severity, ("○", "dim"),
+        )
+
+        if pr.passed:
+            status = "[green]PASS[/green]"
+        else:
+            status = f"[{sev_style}]FAIL[/{sev_style}]"
+
+        # Truncate probe name for display
+        raw_name = pr.probe_name or ""
+        name = raw_name[:36]
+        if len(raw_name) > 36:
+            name += "…"
+
+        # Truncate reason
+        raw_reason = pr.reason or ""
+        reason = raw_reason[:60]
+        if len(raw_reason) > 60:
+            reason += "…"
+
+        text = (
+            f"    [{sev_style}]{icon}[/{sev_style}] "
+            f"{status}  "
+            f"{name:<38s} "
+            f"[dim]{reason}[/dim]"
+        )
+        super().__init__(text)
+
+
+class ModuleBar(Static):
+    """A clickable horizontal bar that toggles probe drill-down."""
+
+    def __init__(
+        self,
+        label: str,
+        value: float,
+        module_result: ModuleResult,
+        max_width: int = 40,
+    ) -> None:
+        self._module_result = module_result
+        self._expanded = False
+
         filled = int(value * max_width)
         empty = max_width - filled
 
@@ -30,9 +86,67 @@ class TrustBar(Static):
         else:
             color = "red"
 
+        passed = module_result.passed_probes
+        total = module_result.total_probes
+
         bar = f"[{color}]{'█' * filled}[/{color}][dim]{'░' * empty}[/dim]"
-        text = f"  {label:<20s} {bar} {value:.0%}"
+        text = (
+            f"  {label:<20s} {bar} {value:.0%} "
+            f"[dim]({passed}/{total})[/dim] "
+            f"[dim italic]▸ click to expand[/dim italic]"
+        )
         super().__init__(text)
+
+    async def on_click(self) -> None:
+        """Toggle probe detail rows below this bar."""
+        self._expanded = not self._expanded
+
+        # Find the detail container that follows this bar
+        detail_id = f"detail_{self._module_result.module_name}"
+        try:
+            detail = self.screen.query_one(f"#{detail_id}", Container)
+            detail.display = self._expanded
+        except Exception:
+            # ID not found or not mounted yet — revert toggle
+            self._expanded = not self._expanded
+
+
+class ModuleDetail(Container):
+    """Container for probe-level rows. Hidden by default, toggled by ModuleBar click."""
+
+    def __init__(self, module_result: ModuleResult) -> None:
+        super().__init__(id=f"detail_{module_result.module_name}")
+        self._module_result = module_result
+
+    def compose(self) -> ComposeResult:
+        # Header row
+        yield Static(
+            f"    [bold dim]{'─' * 90}[/bold dim]\n"
+            f"    [bold]Probe[/bold]{' ' * 36}"
+            f"[bold]Result[/bold]  [bold]Details[/bold]"
+        )
+
+        for pr in self._module_result.probe_results:
+            yield ProbeRow(pr)
+
+        # Summary line
+        failed = [
+            p for p in self._module_result.probe_results if not p.passed
+        ]
+        if failed:
+            crit = sum(1 for p in failed if p.severity == Severity.CRITICAL)
+            high = sum(1 for p in failed if p.severity == Severity.HIGH)
+            parts = []
+            if crit:
+                parts.append(f"[bold red]{crit} CRITICAL[/bold red]")
+            if high:
+                parts.append(f"[red]{high} HIGH[/red]")
+            summary = ", ".join(parts) if parts else f"{len(failed)} failed"
+            yield Static(f"    [dim]└─ {summary} failure(s)[/dim]")
+        else:
+            yield Static(f"    [dim]└─ All probes passed[/dim]")
+
+        yield Static(f"    [bold dim]{'─' * 90}[/bold dim]")
 
 
 class FindingLine(Static):
@@ -52,9 +166,14 @@ class FindingLine(Static):
 
 
 class TrustReportScreen(Screen):
-    """Main trust report screen."""
+    """Main trust report screen with expandable module drill-down."""
 
-    BINDINGS = [("q", "quit", "Quit"), ("escape", "quit", "Quit")]
+    BINDINGS = [
+        ("q", "quit", "Quit"),
+        ("escape", "quit", "Quit"),
+        ("a", "expand_all", "Expand All"),
+        ("c", "collapse_all", "Collapse All"),
+    ]
 
     def __init__(
         self,
@@ -92,13 +211,16 @@ class TrustReportScreen(Screen):
             if self.trust.contamination_warning:
                 yield Static("[bold yellow on dark_goldenrod] CONTAMINATION WARNING [/bold yellow on dark_goldenrod]")
 
-            # Bar charts
-            yield Static("\n[bold]TRUST DIMENSIONS[/bold]")
+            # Bar charts with expandable probe details
+            yield Static("\n[bold]TRUST DIMENSIONS[/bold]  [dim]click bar to expand · a=expand all · c=collapse all[/dim]")
             for mr in self.module_results:
                 if mr.module_name == "CONTAMINATION_CHECK":
                     continue
                 label = MODULE_LABELS.get(mr.module_name, mr.module_name)
-                yield TrustBar(label, mr.pass_rate)
+                yield ModuleBar(label, mr.pass_rate, mr)
+                detail = ModuleDetail(mr)
+                detail.display = False  # Start collapsed
+                yield detail
 
             # Findings
             yield Static("\n[bold]FINDINGS[/bold]")
@@ -110,6 +232,20 @@ class TrustReportScreen(Screen):
     def action_quit(self) -> None:
         self.app.exit()
 
+    def action_expand_all(self) -> None:
+        """Expand all module detail panels."""
+        for detail in self.query(ModuleDetail):
+            detail.display = True
+        for bar in self.query(ModuleBar):
+            bar._expanded = True
+
+    def action_collapse_all(self) -> None:
+        """Collapse all module detail panels."""
+        for detail in self.query(ModuleDetail):
+            detail.display = False
+        for bar in self.query(ModuleBar):
+            bar._expanded = False
+
 
 class TrustReportApp(App):
     """Textual app for viewing trust reports."""
@@ -117,6 +253,15 @@ class TrustReportApp(App):
     CSS = """
     ScrollableContainer {
         padding: 1 2;
+    }
+    ModuleDetail {
+        padding: 0 0 0 2;
+    }
+    ModuleBar {
+        height: auto;
+    }
+    ModuleBar:hover {
+        background: $surface-lighten-1;
     }
     """
 

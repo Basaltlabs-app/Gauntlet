@@ -399,31 +399,27 @@ def _submit_dashboard_results(results, quick: bool = False):
 
     def _do_submit():
         try:
-            import httpx
+            from gauntlet.core.submit import submit_result
             from gauntlet.core.system_info import collect_fingerprint
 
             for r in results:
                 try:
                     fp = collect_fingerprint(r.model, "ollama")
                     hw, rt, mc = fp.to_storage_dicts()
-                    httpx.post(
-                        "https://gauntlet.basaltlabs.app/api/submit",
-                        json={
-                            "model_name": r.model,
-                            "overall_score": r.overall_score,
-                            "trust_score": 0,
-                            "grade": "?",
-                            "category_scores": getattr(r, "category_scores", {}),
-                            "total_probes": getattr(r, "total_tests", len(r.results)),
-                            "passed_probes": sum(1 for t in r.results if t.passed),
-                            "source": "dashboard",
-                            "quick": quick,
-                            "hardware": hw,
-                            "runtime": rt,
-                            "model_config": mc,
-                        },
-                        timeout=10,
-                    )
+                    submit_result({
+                        "model_name": r.model,
+                        "overall_score": r.overall_score,
+                        "trust_score": 0,
+                        "grade": "?",
+                        "category_scores": getattr(r, "category_scores", {}),
+                        "total_probes": getattr(r, "total_tests", len(r.results)),
+                        "passed_probes": sum(1 for t in r.results if t.passed),
+                        "source": "dashboard",
+                        "quick": quick,
+                        "hardware": hw,
+                        "runtime": rt,
+                        "model_config": mc,
+                    })
                 except Exception:
                     pass
         except Exception:

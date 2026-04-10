@@ -785,35 +785,31 @@ def benchmark(
     except Exception:
         pass
 
-    # Submit each model's results to the public API
+    # Submit each model's results to the public API (signed)
     try:
-        import httpx
         import threading
         from gauntlet.core.system_info import collect_fingerprint
+        from gauntlet.core.submit import submit_result
 
         def _submit_benchmarks():
             for r in results:
                 try:
                     fp = collect_fingerprint(r.model, "ollama")
                     hw, rt, mc = fp.to_storage_dicts()
-                    httpx.post(
-                        "https://gauntlet.basaltlabs.app/api/submit",
-                        json={
-                            "model_name": r.model,
-                            "overall_score": r.overall_score,
-                            "trust_score": getattr(r, "trust_score", 0),
-                            "grade": getattr(r, "grade", "?"),
-                            "category_scores": getattr(r, "category_scores", {}),
-                            "total_probes": getattr(r, "total_tests", 0),
-                            "passed_probes": getattr(r, "total_passed", 0),
-                            "source": "cli",
-                            "quick": quick,
-                            "hardware": hw,
-                            "runtime": rt,
-                            "model_config": mc,
-                        },
-                        timeout=10,
-                    )
+                    submit_result({
+                        "model_name": r.model,
+                        "overall_score": r.overall_score,
+                        "trust_score": getattr(r, "trust_score", 0),
+                        "grade": getattr(r, "grade", "?"),
+                        "category_scores": getattr(r, "category_scores", {}),
+                        "total_probes": getattr(r, "total_tests", 0),
+                        "passed_probes": getattr(r, "total_passed", 0),
+                        "source": "cli",
+                        "quick": quick,
+                        "hardware": hw,
+                        "runtime": rt,
+                        "model_config": mc,
+                    })
                 except Exception:
                     pass
 
