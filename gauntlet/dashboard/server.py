@@ -934,10 +934,13 @@ async def start_server(
     server = uvicorn.Server(config)
     _server_ref = server  # Store for auto-shutdown access
 
-    # Register signal handlers for clean shutdown
-    loop = asyncio.get_event_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, lambda s=sig: asyncio.create_task(_shutdown(server, s)))
+    # Register signal handlers for clean shutdown (main thread only)
+    try:
+        loop = asyncio.get_event_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, lambda s=sig: asyncio.create_task(_shutdown(server, s)))
+    except (ValueError, RuntimeError):
+        pass  # Not in main thread (TUI, background thread), skip signal handlers
 
     _notify_event(f"Server starting on http://127.0.0.1:{port}")
 
