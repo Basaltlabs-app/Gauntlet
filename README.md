@@ -24,7 +24,7 @@
 <p align="center">
   <img src="https://img.shields.io/pypi/v/gauntlet-cli?color=b08d6e" alt="PyPI" />
   <img src="https://img.shields.io/github/license/Basaltlabs-app/Gauntlet" alt="License" />
-  <img src="https://img.shields.io/badge/probes-109-c4a05a" alt="109 Probes" />
+  <img src="https://img.shields.io/badge/probes-88-c4a05a" alt="88 Probes" />
   <img src="https://img.shields.io/badge/scoring-deterministic-c4a05a" alt="Deterministic" />
 </p>
 
@@ -236,7 +236,7 @@ Classification uses **deterministic keyword matching**: no LLM calls, instant, r
 
 ## Behavioral Taxonomy
 
-**16 behavioral categories. 109 probes. 18 dynamic factories.** Each category contains parameterized probes with fully deterministic verification. No model judges another model.
+**24 behavioral categories. 88 probes. 18 dynamic factories. 14 domain competence tasks.** Each category contains parameterized probes with fully deterministic verification. No model judges another model.
 
 | Category | Probes | Dimension Measured | Verification Method |
 |---|---|---|---|
@@ -375,7 +375,7 @@ Add to your MCP client configuration (Claude Code, Cursor, Windsurf, etc.):
 
 Then instruct the AI: **"Run the gauntlet on yourself"**
 
-Same 109 probes. Same deterministic scoring. Same dynamic factories. The model under evaluation is also the executor.
+Same 88 probes. Same deterministic scoring. Same dynamic factories. The model under evaluation is also the executor.
 
 **Note on MCP data quality**: MCP results are stored separately from community CLI results. Because MCP runs on cloud serverless infrastructure, there is no local hardware fingerprint, and the model name is self-reported by the AI (not verified). For research-grade community data, use `gauntlet run` from the CLI, which detects the actual model, quantization, and hardware automatically.
 
@@ -451,7 +451,7 @@ Ollama runs models locally with zero external dependency. Cloud providers are op
 # Launch the interactive TUI
 gauntlet
 
-# Run the full benchmark (109 probes)
+# Run the full benchmark (88 probes)
 gauntlet run --model ollama/qwen3.5:4b --profile assistant
 
 # Quick mode (~51 probes, reduced set per module)

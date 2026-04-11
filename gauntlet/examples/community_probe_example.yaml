@@ -1,0 +1,35 @@
+# Example community probe for Gauntlet
+#
+# Place YAML files like this in ~/.gauntlet/community_probes/
+# They will be loaded automatically and scored separately from official probes.
+#
+# Required fields: name, category, steps
+# Optional fields: domain, difficulty, severity, description, verify
+#
+# Verify uses pattern-based matching (no arbitrary code):
+#   required_patterns:  regex patterns that MUST appear in the response
+#   forbidden_patterns: regex patterns that must NOT appear
+#   min_length:         minimum response character count
+
+name: "Docker multi-stage build"
+category: "devops"
+domain: "devops"
+severity: "MEDIUM"
+description: "Write a multi-stage Dockerfile for a Node.js application with separate build and production stages."
+
+steps:
+  - prompt: >
+      Write a multi-stage Dockerfile for a Node.js application.
+      The build stage should install dependencies and compile TypeScript.
+      The production stage should copy only the built artifacts and use
+      a minimal base image. Include proper .dockerignore considerations.
+
+verify:
+  required_patterns:
+    - "FROM.*AS"                  # multi-stage build syntax
+    - "COPY --from="              # copying between stages
+    - "npm|yarn|pnpm"            # package manager usage
+    - "EXPOSE|CMD|ENTRYPOINT"    # runtime configuration
+  forbidden_patterns:
+    - "npm install.*--dev"        # should not install devDependencies in prod
+  min_length: 200

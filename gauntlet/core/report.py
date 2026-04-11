@@ -18,6 +18,15 @@ MODULE_LABELS: dict[str, str] = {
     "HALLUCINATION_PROBE": "Hallucination Resistance",
     "CONTEXT_FIDELITY": "Context Recall",
     "REFUSAL_CALIBRATION": "Refusal Calibration",
+    "SYCOPHANCY_GRADIENT": "Sycophancy Gradient",
+    "INSTRUCTION_DECAY": "Instruction Decay",
+    "TEMPORAL_COHERENCE": "Temporal Coherence",
+    "CONFIDENCE_CALIBRATION": "Confidence Calibration",
+    "ANCHORING_BIAS": "Anchoring Bias",
+    "PROMPT_INJECTION": "Injection Resistance",
+    "LOGICAL_CONSISTENCY": "Logical Consistency",
+    "FRAMING_EFFECT": "Framing Effect",
+    "CONTAMINATION_CHECK": "Contamination Check",
 }
 
 _PROFILE_LABELS: dict[str, str] = {
