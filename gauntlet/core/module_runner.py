@@ -273,6 +273,105 @@ async def run_gauntlet(
 
 
 # ---------------------------------------------------------------------------
+# Convenience wrapper for dashboard / external callers
+# ---------------------------------------------------------------------------
+
+async def run_gauntlet_from_spec(
+    model_spec: str,
+    quick: bool = False,
+    profile: str = "raw",
+    on_module_start: Callable | None = None,
+    on_module_done: Callable | None = None,
+    on_probe_done: Callable | None = None,
+) -> tuple[list[ModuleResult], GauntletScore, TrustScore]:
+    """Run gauntlet from a model spec string (e.g., 'gemma4:e2b', 'openai:gpt-4o').
+
+    Convenience wrapper for the dashboard and other interfaces that work with
+    model spec strings rather than separate model_name + provider.
+
+    Callbacks (all optional, all sync):
+        on_module_start(module_name, module_idx, total_modules)
+        on_module_done(module_name, module_idx, total_modules, module_result, module_score)
+        on_probe_done(module_name, probe_name, probe_idx, total_probes, passed)
+    """
+    from gauntlet.core.config import detect_provider
+
+    provider, model_name = detect_provider(model_spec)
+
+    load_all_modules()
+    modules = list_modules()
+
+    # Build a progress callback that dispatches to on_module_start
+    def on_progress(mod_name: str, probe_idx: int, total_probes: int, status: str) -> None:
+        if probe_idx == 0 and on_module_start:
+            # Module is starting -- find its index
+            idx = next((i for i, m in enumerate(modules) if m.name == mod_name), 0)
+            on_module_start(mod_name, idx, len(modules))
+
+    # We need per-probe callbacks, so wire them through config
+    # The on_probe_complete callback in base module is:
+    #   callback(probe_index, total, probe_name, passed)
+    # We wrap it to inject the current module name.
+    current_module_name: dict[str, str] = {"name": ""}
+
+    def _on_probe_complete(probe_index: int, total: int, probe_name: str, passed: bool) -> None:
+        if on_probe_done:
+            on_probe_done(current_module_name["name"], probe_name, probe_index, total, passed)
+
+    run_config: dict = {"quick": quick}
+    if on_probe_done:
+        run_config["on_probe_complete"] = _on_probe_complete
+
+    all_results = []
+    all_scores = []
+    module_versions: dict[str, str] = {}
+
+    for mi, module in enumerate(modules):
+        current_module_name["name"] = module.name
+
+        try:
+            module_versions[module.name] = module.versioned_id
+        except Exception:
+            module_versions[module.name] = module.version
+
+        if on_module_start:
+            on_module_start(module.name, mi, len(modules))
+
+        result, score = await run_module(
+            module=module,
+            model_name=model_name,
+            provider=provider,
+            config=run_config,
+            on_progress=on_progress,
+        )
+        all_results.append(result)
+        all_scores.append(score)
+
+        if on_module_done:
+            on_module_done(module.name, mi, len(modules), result, score)
+
+    final_score = compute_gauntlet_score(
+        model_name, all_scores, profile,
+        module_versions=module_versions,
+    )
+    trust = compute_trust_score(
+        all_results, profile=profile,
+    )
+
+    # Community submission (same as run_gauntlet)
+    try:
+        _submit_to_community(
+            model_name, provider, final_score, trust,
+            list(all_scores), list(all_results), quick,
+            dict(module_versions),
+        )
+    except Exception as e:
+        logger.warning("Community leaderboard submission failed: %s", e)
+
+    return all_results, final_score, trust
+
+
+# ---------------------------------------------------------------------------
 # Community submission
 # ---------------------------------------------------------------------------
 

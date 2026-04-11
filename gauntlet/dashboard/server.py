@@ -37,7 +37,7 @@ from gauntlet.core.metrics import ComparisonResult, ModelMetrics
 from gauntlet.core.runner import stream_comparison, run_single_model
 from gauntlet.core.config import resolve_model
 from gauntlet.core.benchmarks import (
-    run_benchmark_suite, get_suite_info, BenchmarkSuiteResult,
+    get_suite_info, BenchmarkSuiteResult,
 )
 from gauntlet.core.benchmark_history import (
     save_benchmark_run, list_benchmark_runs, load_benchmark_run,
@@ -476,38 +476,8 @@ async def dashboard_certification(model: str = ""):
 
 
 def _submit_dashboard_results(results, quick: bool = False):
-    """Submit dashboard benchmark results to the community API in background."""
-    import threading
-
-    def _do_submit():
-        try:
-            from gauntlet.core.submit import submit_result
-            from gauntlet.core.system_info import collect_fingerprint
-
-            for r in results:
-                try:
-                    fp = collect_fingerprint(r.model, "ollama")
-                    hw, rt, mc = fp.to_storage_dicts()
-                    submit_result({
-                        "model_name": r.model,
-                        "overall_score": r.overall_score,
-                        "trust_score": 0,
-                        "grade": "?",
-                        "category_scores": getattr(r, "category_scores", {}),
-                        "total_probes": getattr(r, "total_tests", len(r.results)),
-                        "passed_probes": sum(1 for t in r.results if t.passed),
-                        "source": "dashboard",
-                        "quick": quick,
-                        "hardware": hw,
-                        "runtime": rt,
-                        "model_config": mc,
-                    })
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-    threading.Thread(target=_do_submit, daemon=True).start()
+    """Legacy stub -- submission now handled by run_gauntlet_from_spec internally."""
+    pass
 
 
 def _update_leaderboard_from_benchmark(results: list[BenchmarkSuiteResult]):
@@ -553,26 +523,34 @@ async def _run_benchmark_streaming(
 ):
     """Run benchmark with per-test progress streamed over WebSocket.
 
+    Uses the real module_runner.run_gauntlet_from_spec() for proper
+    severity-weighted scoring, TrustScore, grades, and attestation.
+    Community submission is handled internally by run_gauntlet_from_spec().
+
     Events sent:
         benchmark_start  - {models, total_tests, suite_info}
         benchmark_model_start - {model, model_index, total_models}
         benchmark_test_start  - {model, test_name, test_index, total_tests, category}
-        benchmark_test_done   - {model, test_name, test_index, passed, score_pct, duration_s, category, details}
+        benchmark_probe_done  - {model, module, probe, passed}
+        benchmark_test_done   - {model, test_name, test_index, passed, score_pct, duration_s, category}
         benchmark_model_done  - {model, model_result: {...}}
         benchmark_complete    - {results: [...]}
         benchmark_stopped     - {reason, partial_results}
     """
-    suite_info = get_suite_info(quick)
-    total_tests = len(suite_info)
+    from gauntlet.core.module_runner import run_gauntlet_from_spec, load_all_modules, list_modules
+
+    # Discover module count for progress reporting
+    load_all_modules()
+    total_modules = len(list_modules())
 
     await ws.send_json({
         "type": "benchmark_start",
         "models": models,
-        "total_tests": total_tests,
-        "suite_info": suite_info,
+        "total_tests": total_modules,
+        "suite_info": [{"name": m.name, "category": m.name} for m in list_modules()],
     })
 
-    all_results: list[BenchmarkSuiteResult] = []
+    all_model_results: list[dict] = []
 
     for mi, model_spec in enumerate(models):
         if cancel_event.is_set():
@@ -585,130 +563,149 @@ async def _run_benchmark_streaming(
             "total_models": len(models),
         })
 
-        # Use on_progress callback to stream per-test events
-        current_test_idx = {"value": 0}
+        # Queue for bridging sync callbacks -> async WebSocket sends.
+        # Callbacks from module_runner are sync (called inside coroutines
+        # on the same event loop thread), so we enqueue events and drain
+        # them via a concurrent sender task.
+        event_queue: asyncio.Queue = asyncio.Queue()
 
-        def _on_progress(model, idx, total, test_name, _mi=mi):
-            current_test_idx["value"] = idx - 1  # 0-based
-
-        # Run suite with cancel support
-        from gauntlet.core.benchmarks import QUICK_TESTS, ALL_TESTS, _TEST_CATEGORIES
-
-        suite = QUICK_TESTS if quick else ALL_TESTS
-        suite_result = BenchmarkSuiteResult(model=model_spec)
-
-        for ti, test_fn in enumerate(suite):
-            if cancel_event.is_set():
-                break
-
-            test_name = test_fn.__name__.replace("test_", "")
-            cat = _TEST_CATEGORIES.get(test_fn.__name__, "unknown")
-
-            # Notify test starting
-            await ws.send_json({
+        def _on_module_start(name: str, idx: int, total: int) -> None:
+            event_queue.put_nowait({
                 "type": "benchmark_test_start",
                 "model": model_spec,
-                "test_name": test_name,
-                "test_index": ti,
-                "total_tests": total_tests,
-                "category": cat,
+                "test_name": name,
+                "test_index": idx,
+                "total_tests": total,
+                "category": name,
             })
 
-            try:
-                bench = await asyncio.wait_for(test_fn(model_spec), timeout=90.0)
-                suite_result.results.append(bench)
+        def _on_module_done(name: str, idx: int, total: int, result, score) -> None:
+            event_queue.put_nowait({
+                "type": "benchmark_test_done",
+                "model": model_spec,
+                "test_name": name,
+                "test_index": idx,
+                "passed": result.passed_probes,
+                "score_pct": round(score.score * 100, 1),
+                "duration_s": round(result.total_duration_s, 2),
+                "category": name,
+                "description": score.summary,
+                "total_in_module": result.total_probes,
+            })
 
-                await ws.send_json({
-                    "type": "benchmark_test_done",
-                    "model": model_spec,
-                    "test_name": bench.name,
-                    "test_index": ti,
-                    "passed": bench.passed,
-                    "score_pct": round((bench.score / bench.max_score) * 100, 1),
-                    "duration_s": round(bench.duration_s, 2) if bench.duration_s else None,
-                    "category": bench.category,
-                    "description": bench.description,
-                })
+        def _on_probe_done(module: str, probe: str, idx: int, total: int, passed: bool) -> None:
+            event_queue.put_nowait({
+                "type": "benchmark_probe_done",
+                "model": model_spec,
+                "module": module,
+                "probe": probe,
+                "probe_index": idx,
+                "total_probes": total,
+                "passed": passed,
+            })
 
-            except asyncio.TimeoutError:
-                from gauntlet.core.benchmarks import BenchmarkResult
-                br = BenchmarkResult(
-                    name=test_name, category="timeout",
-                    description="Test timed out after 90s",
-                    model=model_spec, score=0, max_score=1, passed=False,
-                    details={"error": "timeout"}, duration_s=90.0,
-                )
-                suite_result.results.append(br)
-                await ws.send_json({
-                    "type": "benchmark_test_done",
-                    "model": model_spec,
-                    "test_name": test_name,
-                    "test_index": ti,
-                    "passed": False,
-                    "score_pct": 0,
-                    "duration_s": 90.0,
-                    "category": "timeout",
-                    "description": "Test timed out after 90s",
-                })
+        # Sender coroutine: drains events from the queue and sends over WS
+        sender_done = asyncio.Event()
 
-            except Exception as e:
-                from gauntlet.core.benchmarks import BenchmarkResult
-                safe_msg = _safe_error(e)
-                br = BenchmarkResult(
-                    name=test_name, category="error",
-                    description=safe_msg,
-                    model=model_spec, score=0, max_score=1, passed=False,
-                    details={"error": safe_msg},
-                )
-                suite_result.results.append(br)
-                await ws.send_json({
-                    "type": "benchmark_test_done",
-                    "model": model_spec,
-                    "test_name": test_name,
-                    "test_index": ti,
-                    "passed": False,
-                    "score_pct": 0,
-                    "duration_s": None,
-                    "category": "error",
-                    "description": safe_msg,
-                })
+        async def _drain_events():
+            while not sender_done.is_set() or not event_queue.empty():
+                try:
+                    evt = await asyncio.wait_for(event_queue.get(), timeout=0.5)
+                    await ws.send_json(evt)
+                except asyncio.TimeoutError:
+                    continue
+                except Exception:
+                    break
 
-        suite_result.compute_scores()
-        all_results.append(suite_result)
+        sender_task = asyncio.create_task(_drain_events())
 
-        await ws.send_json({
-            "type": "benchmark_model_done",
-            "model": model_spec,
-            "model_result": suite_result.to_dict(),
-        })
+        try:
+            results, score, trust = await run_gauntlet_from_spec(
+                model_spec,
+                quick=quick,
+                profile="raw",
+                on_module_start=_on_module_start,
+                on_module_done=_on_module_done,
+                on_probe_done=_on_probe_done,
+            )
+
+            # Signal sender to flush remaining events and wait
+            sender_done.set()
+            await sender_task
+
+            # Build a result dict compatible with the frontend
+            cat_scores = {}
+            for ms in score.module_scores:
+                if ms.module_name != "CONTAMINATION_CHECK":
+                    cat_scores[ms.module_name] = round(ms.score * 100, 1)
+
+            model_result = {
+                "model": model_spec,
+                "overall_score": round(score.overall_score * 100, 1),
+                "trust_score": trust.score,
+                "grade": score.overall_grade,
+                "total_passed": score.passed_probes,
+                "total_tests": score.total_probes,
+                "total_duration_s": round(sum(r.total_duration_s for r in results), 1),
+                "category_scores": cat_scores,
+            }
+            all_model_results.append(model_result)
+
+            await ws.send_json({
+                "type": "benchmark_model_done",
+                "model": model_spec,
+                "model_result": model_result,
+            })
+
+        except Exception as e:
+            sender_done.set()
+            await sender_task
+            safe_msg = _safe_error(e)
+            all_model_results.append({
+                "model": model_spec,
+                "overall_score": 0,
+                "trust_score": 0,
+                "grade": "?",
+                "total_passed": 0,
+                "total_tests": 0,
+                "category_scores": {},
+                "error": safe_msg,
+            })
+            await ws.send_json({
+                "type": "benchmark_model_done",
+                "model": model_spec,
+                "model_result": all_model_results[-1],
+            })
 
     # Persist results to disk
-    result_dicts = [r.to_dict() for r in all_results]
     was_stopped = cancel_event.is_set()
-    run_id = save_benchmark_run(result_dicts, quick=quick, stopped=was_stopped)
+    run_id = save_benchmark_run(all_model_results, quick=quick, stopped=was_stopped)
 
     if was_stopped:
         await ws.send_json({
             "type": "benchmark_stopped",
             "reason": "Cancelled by user",
-            "partial_results": result_dicts,
+            "partial_results": all_model_results,
             "run_id": run_id,
         })
     else:
         await ws.send_json({
             "type": "benchmark_complete",
-            "results": result_dicts,
+            "results": all_model_results,
             "run_id": run_id,
         })
 
     # Update leaderboard with benchmark scores and send to client
-    _update_leaderboard_from_benchmark(all_results)
+    # Build minimal BenchmarkSuiteResult objects for leaderboard compatibility
+    compat_results = []
+    for mr in all_model_results:
+        sr = BenchmarkSuiteResult(model=mr["model"])
+        sr.overall_score = mr.get("overall_score", 0) / 100.0
+        compat_results.append(sr)
+    _update_leaderboard_from_benchmark(compat_results)
+
     lb = Leaderboard()
     await ws.send_json({"type": "leaderboard", "data": lb.to_dict()})
-
-    # Submit to community dashboard
-    if not was_stopped:
-        _submit_dashboard_results(all_results, quick)
 
 
 async def _ws_command_loop(ws: WebSocket):
@@ -931,10 +928,30 @@ async def websocket_endpoint(ws: WebSocket):
         has_quality = False
         if not _comparison_state["no_judge"] and len(all_metrics) > 1:
             await ws.send_json({"type": "judging"})
-            result = await judge_comparison(
-                result, judge_model=_comparison_state["judge_model"],
-                classification=classification,
-            )
+
+            # Send periodic heartbeat while judge is thinking
+            heartbeat_done = asyncio.Event()
+
+            async def _judge_heartbeat():
+                elapsed = 0
+                while not heartbeat_done.is_set():
+                    await asyncio.sleep(3)
+                    elapsed += 3
+                    try:
+                        await ws.send_json({"type": "judging_progress", "elapsed_s": elapsed})
+                    except Exception:
+                        break
+
+            heartbeat_task = asyncio.create_task(_judge_heartbeat())
+            try:
+                result = await judge_comparison(
+                    result, judge_model=_comparison_state["judge_model"],
+                    classification=classification,
+                )
+            finally:
+                heartbeat_done.set()
+                heartbeat_task.cancel()
+
             has_quality = True
 
         # Compute composite scores with category-specific weights

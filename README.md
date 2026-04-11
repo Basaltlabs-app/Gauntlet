@@ -48,7 +48,7 @@ Gauntlet is a community-driven behavioral research platform. Every user who runs
 - **Confidence calibration**: correlation between stated confidence and actual accuracy (ECE)
 - **Pressure resistance, hallucination detection, safety boundaries, refusal calibration**, and 8 more
 
-**How it scores**: fully deterministic (regex, pattern matching, AST parsing). No LLM-as-judge. 18 dynamic probe factories randomize values each run to prevent memorization.
+**How it scores**: TrustScore uses fully deterministic verification (regex, pattern matching, AST parsing). The compare feature uses lightweight LLM evaluation for freeform prompt quality assessment. 18 dynamic probe factories randomize values each run to prevent memorization.
 
 **What makes it different**: Gauntlet is not a tool. It is a platform. Results from CLI, TUI, and dashboard feed a community dataset with hardware metadata. Every submission is classified into a hardware tier (Edge, Consumer Low/Mid/High, Cloud), scored with confidence intervals, and used to predict how models perform on hardware configurations they have not been tested on.
 
@@ -236,7 +236,7 @@ Classification uses **deterministic keyword matching**: no LLM calls, instant, r
 
 ## Behavioral Taxonomy
 
-**24 behavioral categories. 88 probes. 18 dynamic factories. 14 domain competence tasks.** Each category contains parameterized probes with fully deterministic verification. No model judges another model.
+**24 behavioral categories. 88 probes. 18 dynamic factories. 14 domain competence tasks.** Each category contains parameterized probes with fully deterministic verification. The compare feature uses lightweight LLM evaluation for freeform quality assessment.
 
 | Category | Probes | Dimension Measured | Verification Method |
 |---|---|---|---|
@@ -292,7 +292,7 @@ Factory state is serialized for reproducible runs via explicit seeding (`--seed`
 
 Gauntlet employs a deduction-based scoring model. Every model begins at TrustScore 100 and incurs point deductions for behavioral failures. This asymmetric design reflects real-world trust dynamics: a single critical failure (fabricating a medical claim, caving on a factual question under authority pressure) damages trust disproportionately relative to correct behavior.
 
-Each probe is evaluated with **deterministic verification** (regex, pattern matching, keyword detection, AST parsing). No LLM judges another LLM.
+Each probe is evaluated with **deterministic verification** (regex, pattern matching, keyword detection, AST parsing). The compare feature uses a lightweight LLM judge for freeform prompt quality assessment.
 
 | Severity | Weight | Max Deduction Per Failure | Example |
 |---|---|---|---|
@@ -529,9 +529,9 @@ Gauntlet addresses limitations in existing evaluation frameworks:
 | AlpacaEval | Instruction following | LLM-as-judge | No | Static prompts |
 | MT-Bench | Multi-turn quality | LLM-as-judge | Limited (2 turns) | Static prompts |
 | TrustLLM (ICML 2024) | Trustworthiness (6 dims) | Mixed (LLM + auto) | No | Static dataset |
-| **Gauntlet** | Behavioral reliability (16 dims) | Fully deterministic | Yes (up to 25 turns) | 18 dynamic factories |
+| **Gauntlet** | Behavioral reliability (16 dims) | Deterministic + lightweight LLM (compare only) | Yes (up to 25 turns) | 18 dynamic factories |
 
-Key differentiators: (1) no reliance on LLM-as-judge, eliminating judge model bias; (2) multi-turn behavioral protocols (sycophancy gradient, temporal coherence, instruction decay); (3) dynamic probe factories preventing benchmark contamination through memorization; (4) novel evaluation dimensions (confidence calibration via ECE, instruction decay rate, pressure threshold mapping); (5) community-aggregated results with hardware metadata, enabling filterable cross-hardware comparison that no single-lab benchmark can provide; (6) hardware tier classification with statistical rigor (confidence intervals, outlier detection) and collaborative filtering for performance prediction across untested configurations; (7) certification program (Gold/Silver/Bronze) providing standardized trust signals for model selection.
+Key differentiators: (1) TrustScore uses fully deterministic verification (no LLM-as-judge for behavioral probes), while the compare feature uses lightweight LLM evaluation for freeform quality assessment; (2) multi-turn behavioral protocols (sycophancy gradient, temporal coherence, instruction decay); (3) dynamic probe factories preventing benchmark contamination through memorization; (4) novel evaluation dimensions (confidence calibration via ECE, instruction decay rate, pressure threshold mapping); (5) community-aggregated results with hardware metadata, enabling filterable cross-hardware comparison that no single-lab benchmark can provide; (6) hardware tier classification with statistical rigor (confidence intervals, outlier detection) and collaborative filtering for performance prediction across untested configurations; (7) certification program (Gold/Silver/Bronze) providing standardized trust signals for model selection.
 
 ---
 

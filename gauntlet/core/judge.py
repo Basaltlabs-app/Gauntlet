@@ -312,7 +312,7 @@ async def judge_comparison(
         # Hard limits to prevent hanging
         if token_count >= 2000:
             break
-        if time.perf_counter() - start > 90:
+        if time.perf_counter() - start > 45:
             break
 
     judge_text = "".join(output_parts)
@@ -376,7 +376,7 @@ async def _pick_judge_model(models: list[ModelMetrics]) -> str:
         if await ollama.check_connection():
             available = await ollama.list_models()
             # Sort by size (largest first) to pick the best judge
-            available.sort(key=lambda x: x.get("size", 0) or 0, reverse=True)
+            available.sort(key=lambda x: x.get("size", 0) or 0)  # smallest first — judge doesn't need to be large
             for m in available:
                 name = m["name"]
                 # Skip models that are being compared
