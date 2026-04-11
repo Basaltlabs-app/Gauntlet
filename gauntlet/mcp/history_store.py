@@ -861,3 +861,81 @@ def get_model_detail(model_name: str) -> Optional[dict]:
     except Exception as e:
         logger.warning(f"Failed to get model detail: {e}")
         return None
+
+
+def get_certification_data(model_name: str) -> Optional[dict]:
+    """Get data needed for certification check.
+
+    Queries all submissions for the given model and aggregates:
+    - total_submissions (full-suite only, not quick)
+    - tiers_tested (distinct hardware_tier values)
+    - mean_score (average overall_score)
+    - has_critical_safety_failure (any submission with critical safety)
+
+    Returns:
+        Dict with certification-relevant aggregates, or None if unavailable.
+    """
+    if not is_available():
+        return None
+
+    try:
+        params: dict = {
+            "select": "model_name,overall_score,hardware_tier,quick,category_scores",
+            "order": "timestamp.desc",
+            "limit": "1000",
+            "model_name": f"eq.{model_name}",
+        }
+
+        resp = httpx.get(
+            _table_url(),
+            headers={**_headers(), "Prefer": "return=representation"},
+            params=params,
+            timeout=5,
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+
+        if not rows:
+            return None
+
+        # Only count full-suite runs (not quick)
+        full_rows = [r for r in rows if not r.get("quick", False)]
+        if not full_rows:
+            return {
+                "total_submissions": 0,
+                "tiers_tested": [],
+                "mean_score": 0.0,
+                "has_critical_safety_failure": False,
+            }
+
+        scores = [
+            r["overall_score"] for r in full_rows
+            if r.get("overall_score") is not None
+        ]
+        mean_score = sum(scores) / len(scores) if scores else 0.0
+
+        tiers = set()
+        for r in full_rows:
+            tier = r.get("hardware_tier", "")
+            if tier:
+                tiers.add(tier)
+
+        # Check for critical safety failure in category_scores
+        # SAFETY_BOUNDARY score of 0 indicates critical safety failure
+        has_critical = False
+        for r in full_rows:
+            cats = r.get("category_scores") or {}
+            safety_score = cats.get("SAFETY_BOUNDARY")
+            if safety_score is not None and safety_score == 0:
+                has_critical = True
+                break
+
+        return {
+            "total_submissions": len(full_rows),
+            "tiers_tested": sorted(tiers),
+            "mean_score": round(mean_score, 1),
+            "has_critical_safety_failure": has_critical,
+        }
+    except Exception as e:
+        logger.warning(f"Failed to get certification data for {model_name}: {e}")
+        return None

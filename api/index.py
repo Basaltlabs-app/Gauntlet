@@ -6,9 +6,12 @@ Exposes:
   /api/leaderboard/history  - Test history + aggregated stats for graphs
   /api/leaderboard/tier     - Hardware-stratified leaderboard per tier
   /api/leaderboard/tiers    - Aggregate overview across all hardware tiers
+  /api/predict               - Predict model performance on untested hardware
+  /api/recommend             - Recommend hardware tier for a target score
   /api/degradation           - Quantization degradation curves per model family
   /api/survey                - Community hardware distribution survey
   /api/badge                 - Embeddable SVG badges (shields.io style)
+  /api/certification         - Model certification status (gold/silver/bronze)
   /api/health               - Health check endpoint
 """
 
@@ -665,6 +668,256 @@ async def badge_handler(request: Request) -> Response:
     return Response(svg, media_type="image/svg+xml", headers=badge_headers)
 
 
+async def predict_handler(request: Request) -> Response:
+    """GET /api/predict?model=qwen2.5:14b&tier=CONSUMER_MID
+
+    Predict model performance on a hardware tier using collaborative filtering.
+    Builds a score matrix from community history data and finds similar models
+    to interpolate expected scores.
+    """
+    from gauntlet.mcp.history_store import is_available
+    from gauntlet.core.prediction import (
+        PerformancePredictor,
+        build_score_matrix_from_history,
+    )
+
+    model = request.query_params.get("model", "")
+    tier = request.query_params.get("tier", "")
+
+    if not model:
+        return JSONResponse(
+            {"error": "Missing required parameter: model"},
+            status_code=400, headers=CORS_HEADERS,
+        )
+    if not tier:
+        return JSONResponse(
+            {"error": "Missing required parameter: tier"},
+            status_code=400, headers=CORS_HEADERS,
+        )
+
+    VALID_TIERS = {"CLOUD", "CONSUMER_HIGH", "CONSUMER_MID", "CONSUMER_LOW", "EDGE"}
+    if tier not in VALID_TIERS:
+        return JSONResponse(
+            {"error": f"Invalid tier: {tier}. Must be one of: {', '.join(sorted(VALID_TIERS))}"},
+            status_code=400, headers=CORS_HEADERS,
+        )
+
+    if not is_available():
+        return JSONResponse(
+            {"error": "Storage not configured"}, status_code=503, headers=CORS_HEADERS,
+        )
+
+    # Fetch history rows with hardware_tier data
+    import httpx
+    from gauntlet.mcp.history_store import _table_url, _headers
+    try:
+        resp = httpx.get(
+            _table_url(),
+            headers={**_headers(), "Prefer": "return=representation"},
+            params={
+                "select": "model_name,hardware_tier,overall_score",
+                "order": "timestamp.desc",
+                "limit": "2000",
+                "hardware_tier": "neq.",
+            },
+            timeout=5,
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+    except Exception as e:
+        return JSONResponse(
+            {"error": f"Failed to fetch history: {str(e)}"},
+            status_code=503, headers=CORS_HEADERS,
+        )
+
+    matrix = build_score_matrix_from_history(rows)
+    predictor = PerformancePredictor(matrix)
+    result = predictor.predict(model, tier)
+
+    return JSONResponse(
+        {
+            "model": model,
+            "tier": tier,
+            "predicted_score": result.predicted_score,
+            "confidence": result.confidence,
+            "basis": result.basis,
+            "similar_models": result.similar_models,
+            "sample_size": result.sample_size,
+            "notes": result.notes,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+        headers=CORS_HEADERS,
+    )
+
+
+async def recommend_handler(request: Request) -> Response:
+    """GET /api/recommend?model=qwen2.5:14b&min_score=75
+
+    Recommend minimum and optimal hardware tiers for a model to achieve
+    a target score threshold. Uses collaborative filtering predictions
+    across all hardware tiers.
+    """
+    from gauntlet.mcp.history_store import is_available
+    from gauntlet.core.prediction import (
+        PerformancePredictor,
+        build_score_matrix_from_history,
+    )
+
+    model = request.query_params.get("model", "")
+    if not model:
+        return JSONResponse(
+            {"error": "Missing required parameter: model"},
+            status_code=400, headers=CORS_HEADERS,
+        )
+
+    min_score = 75.0
+    try:
+        min_score = float(request.query_params.get("min_score", "75"))
+    except ValueError:
+        pass
+
+    if min_score < 0 or min_score > 100:
+        return JSONResponse(
+            {"error": "min_score must be between 0 and 100"},
+            status_code=400, headers=CORS_HEADERS,
+        )
+
+    if not is_available():
+        return JSONResponse(
+            {"error": "Storage not configured"}, status_code=503, headers=CORS_HEADERS,
+        )
+
+    # Fetch history rows with hardware_tier data
+    import httpx
+    from gauntlet.mcp.history_store import _table_url, _headers
+    try:
+        resp = httpx.get(
+            _table_url(),
+            headers={**_headers(), "Prefer": "return=representation"},
+            params={
+                "select": "model_name,hardware_tier,overall_score",
+                "order": "timestamp.desc",
+                "limit": "2000",
+                "hardware_tier": "neq.",
+            },
+            timeout=5,
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+    except Exception as e:
+        return JSONResponse(
+            {"error": f"Failed to fetch history: {str(e)}"},
+            status_code=503, headers=CORS_HEADERS,
+        )
+
+    matrix = build_score_matrix_from_history(rows)
+    predictor = PerformancePredictor(matrix)
+    recommendation = predictor.recommended_tier(model, min_score=min_score)
+
+    return JSONResponse(
+        {
+            "model": model,
+            "minimum_tier": recommendation.get("minimum_tier"),
+            "recommended_tier": recommendation.get("recommended_tier"),
+            "min_score_target": recommendation.get("min_score_target"),
+            "predictions": recommendation.get("predictions", {}),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+        headers=CORS_HEADERS,
+    )
+
+
+async def certification_handler(request: Request) -> Response:
+    """GET /api/certification?model=qwen2.5:14b — certification status for a model.
+
+    Certification levels:
+    - Gold: mean_score >= 90, >= 20 submissions, >= 3 tiers, no critical safety, full suite only
+    - Silver: mean_score >= 75, >= 10 submissions, >= 2 tiers, no critical safety, full suite only
+    - Bronze: mean_score >= 60, >= 5 submissions, >= 1 tier, full suite only
+    - Uncertified: doesn't meet bronze
+    """
+    model = request.query_params.get("model", "")
+    if not model:
+        return JSONResponse(
+            {"error": "Missing required parameter: model"},
+            status_code=400, headers=CORS_HEADERS,
+        )
+
+    from gauntlet.mcp.history_store import get_certification_data, is_available
+
+    if not is_available():
+        return JSONResponse(
+            {"error": "Storage not configured"}, status_code=503, headers=CORS_HEADERS,
+        )
+
+    cert_data = get_certification_data(model)
+    if cert_data is None:
+        return JSONResponse(
+            {"error": f"No data for model: {model}"}, status_code=404, headers=CORS_HEADERS,
+        )
+
+    # Define certification levels
+    levels = {
+        "gold": {"min_score": 90, "min_submissions": 20, "min_tiers": 3},
+        "silver": {"min_score": 75, "min_submissions": 10, "min_tiers": 2},
+        "bronze": {"min_score": 60, "min_submissions": 5, "min_tiers": 1},
+    }
+
+    total_subs = cert_data["total_submissions"]
+    tiers_tested = cert_data["tiers_tested"]
+    mean_score = cert_data["mean_score"]
+    has_critical = cert_data["has_critical_safety_failure"]
+    num_tiers = len(tiers_tested)
+
+    # Determine certification level (check gold -> silver -> bronze)
+    cert_level = "uncertified"
+    for level_name in ("gold", "silver", "bronze"):
+        reqs = levels[level_name]
+        meets_score = mean_score >= reqs["min_score"]
+        meets_subs = total_subs >= reqs["min_submissions"]
+        meets_tiers = num_tiers >= reqs["min_tiers"]
+        # Gold and silver require no critical safety failures
+        # Bronze does not require no critical safety (only full suite)
+        if level_name in ("gold", "silver"):
+            no_critical = not has_critical
+        else:
+            no_critical = True  # Bronze doesn't require no_critical
+        full_suite = total_subs > 0  # All counted submissions are full suite
+
+        if meets_score and meets_subs and meets_tiers and no_critical and full_suite:
+            cert_level = level_name
+            break
+
+    # Build criteria_met for the achieved level (or bronze if uncertified)
+    check_level = cert_level if cert_level != "uncertified" else "bronze"
+    reqs = levels[check_level]
+    criteria_met = {
+        "min_submissions": total_subs >= reqs["min_submissions"],
+        "min_tiers": num_tiers >= reqs["min_tiers"],
+        "no_critical_safety": not has_critical,
+        "full_suite_only": total_subs > 0,
+        "score_threshold": mean_score >= reqs["min_score"],
+    }
+
+    return JSONResponse(
+        {
+            "model": model,
+            "certification": {
+                "level": cert_level,
+                "criteria_met": criteria_met,
+                "details": {
+                    "total_submissions": total_subs,
+                    "tiers_tested": tiers_tested,
+                    "mean_score": mean_score,
+                    "has_critical_safety_failure": has_critical,
+                },
+            },
+            "levels": levels,
+        },
+        headers=CORS_HEADERS,
+    )
+
+
 async def health_handler(request: Request) -> Response:
     """GET /api/health -- health check with Supabase connectivity test."""
     from gauntlet.mcp.history_store import is_available as history_available
@@ -724,12 +977,18 @@ class _CombinedApp:
                 Route("/api/health", health_handler, methods=["GET"]),
                 Route("/api/submit", submit_handler, methods=["POST"]),
                 Route("/api/submit", cors_preflight, methods=["OPTIONS"]),
+                Route("/api/predict", predict_handler, methods=["GET"]),
+                Route("/api/predict", cors_preflight, methods=["OPTIONS"]),
+                Route("/api/recommend", recommend_handler, methods=["GET"]),
+                Route("/api/recommend", cors_preflight, methods=["OPTIONS"]),
                 Route("/api/degradation", degradation_handler, methods=["GET"]),
                 Route("/api/degradation", cors_preflight, methods=["OPTIONS"]),
                 Route("/api/survey", survey_handler, methods=["GET"]),
                 Route("/api/survey", cors_preflight, methods=["OPTIONS"]),
                 Route("/api/badge", badge_handler, methods=["GET"]),
                 Route("/api/badge", cors_preflight, methods=["OPTIONS"]),
+                Route("/api/certification", certification_handler, methods=["GET"]),
+                Route("/api/certification", cors_preflight, methods=["OPTIONS"]),
                 Route("/api/leaderboard/stats", stats_handler, methods=["GET"]),
                 Route("/api/leaderboard/stats", cors_preflight, methods=["OPTIONS"]),
                 Route("/api/leaderboard/tier", tier_leaderboard_handler, methods=["GET"]),

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Layers, Gauge, Timer, Target, Network, ListOrdered, BookOpen } from 'lucide-react'
+import { Layers, Gauge, Timer, Target, Network, ListOrdered, BookOpen, Globe } from 'lucide-react'
 import { useWebSocket } from './hooks/useWebSocket'
 import { pageTransition, getModelColor } from './lib/animations'
 import Arena from './components/Arena'
@@ -12,6 +12,7 @@ import ScoringBreakdown from './components/ScoringBreakdown'
 import ControlPanel from './components/ControlPanel'
 import BenchmarkPanel from './components/BenchmarkPanel'
 import HelpPanel from './components/HelpPanel'
+import CommunityPanel from './components/CommunityPanel'
 
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`
 
@@ -22,6 +23,7 @@ const TABS = [
   { id: 'quality', label: 'Quality', icon: Target },
   { id: 'graph', label: 'Graph', icon: Network },
   { id: 'rankings', label: 'Rankings', icon: ListOrdered },
+  { id: 'community', label: 'Community', icon: Globe },
   { id: 'help', label: 'Docs', icon: BookOpen },
 ]
 
@@ -218,6 +220,10 @@ export default function App() {
 
             {activeTab === 'rankings' && (
               <Leaderboard data={leaderboard} result={result} />
+            )}
+
+            {activeTab === 'community' && (
+              <CommunityPanel />
             )}
 
             {activeTab === 'help' && (

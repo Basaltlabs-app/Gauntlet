@@ -420,6 +420,61 @@ async def stop_benchmark():
     return {"status": "no_benchmark_running"}
 
 
+# ---------------------------------------------------------------------------
+# Community Intelligence proxy endpoints (forward to public API)
+# ---------------------------------------------------------------------------
+
+_COMMUNITY_API = "https://gauntlet.basaltlabs.app"
+
+
+async def _proxy_community(path: str, params: dict = None):
+    """Proxy a request to the community API, return JSON or error."""
+    import httpx
+    url = f"{_COMMUNITY_API}{path}"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(url, params=params)
+            return resp.json() if resp.status_code == 200 else {"error": f"API returned {resp.status_code}"}
+    except Exception as e:
+        logger.warning("Community proxy failed for %s: %s", path, e)
+        return {"error": "Community API unavailable"}
+
+
+@app.get("/api/survey")
+async def dashboard_survey():
+    return await _proxy_community("/api/survey")
+
+
+@app.get("/api/leaderboard/tier")
+async def dashboard_tier_leaderboard(tier: str = ""):
+    return await _proxy_community("/api/leaderboard/tier", {"tier": tier})
+
+
+@app.get("/api/leaderboard/tiers")
+async def dashboard_tier_overview():
+    return await _proxy_community("/api/leaderboard/tiers")
+
+
+@app.get("/api/degradation")
+async def dashboard_degradation(model_family: str = "", parameter_size: str = ""):
+    return await _proxy_community("/api/degradation", {"model_family": model_family, "parameter_size": parameter_size})
+
+
+@app.get("/api/predict")
+async def dashboard_predict(model: str = "", tier: str = ""):
+    return await _proxy_community("/api/predict", {"model": model, "tier": tier})
+
+
+@app.get("/api/recommend")
+async def dashboard_recommend(model: str = "", min_score: float = 75.0):
+    return await _proxy_community("/api/recommend", {"model": model, "min_score": str(min_score)})
+
+
+@app.get("/api/certification")
+async def dashboard_certification(model: str = ""):
+    return await _proxy_community("/api/certification", {"model": model})
+
+
 def _submit_dashboard_results(results, quick: bool = False):
     """Submit dashboard benchmark results to the community API in background."""
     import threading
