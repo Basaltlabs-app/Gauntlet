@@ -37,3 +37,6 @@ CLAUDE.md
 docs/superpowers/
 .vercel
 _basaltlabs/
+
+# HuggingFace benchmark files (uploaded separately)
+huggingface-benchmark/
