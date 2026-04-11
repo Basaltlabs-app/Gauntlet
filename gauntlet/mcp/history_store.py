@@ -70,6 +70,8 @@ def record_test_result(
     quick: bool = False,
     fingerprint: Optional["SystemFingerprint"] = None,
     probe_details: Optional[dict] = None,
+    attestation: Optional[dict] = None,
+    hardware_tier: str = "",
 ) -> None:
     """Record a single model's test result to the history table.
 
@@ -80,6 +82,9 @@ def record_test_result(
         probe_details: Optional per-module probe-level breakdown. Dict mapping
             module_name -> list of {id, name, passed, score, severity, reason, duration_s}.
             Stored as JSONB for drill-down display on the community dashboard.
+        attestation: Optional attestation dict (Phase 1.3) with version, fingerprint,
+            and provenance metadata. Stored as JSONB.
+        hardware_tier: Top-level hardware tier string for indexing/filtering.
     """
     if not is_available():
         return
@@ -108,6 +113,12 @@ def record_test_result(
         # Attach probe-level detail for drill-down display
         if probe_details:
             payload["probe_details"] = probe_details
+
+        # Attach attestation for provenance tracking (Phase 1.3)
+        if attestation:
+            payload["attestation"] = attestation
+        if hardware_tier:
+            payload["hardware_tier"] = hardware_tier
 
         resp = httpx.post(
             _table_url(),

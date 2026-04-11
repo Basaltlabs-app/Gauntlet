@@ -231,7 +231,14 @@ async def run_gauntlet(
     if seed is not None:
         run_config["seed"] = seed
 
+    module_versions: dict[str, str] = {}
     for module in modules:
+        # Collect versioned_id for each module (before running, for metadata)
+        try:
+            module_versions[module.name] = module.versioned_id
+        except Exception:
+            module_versions[module.name] = module.version
+
         result, score = await run_module(
             module=module,
             model_name=model_name,
@@ -242,7 +249,10 @@ async def run_gauntlet(
         all_results.append(result)
         all_scores.append(score)
 
-    final_score = compute_gauntlet_score(model_name, all_scores, profile)
+    final_score = compute_gauntlet_score(
+        model_name, all_scores, profile,
+        module_versions=module_versions,
+    )
     trust = compute_trust_score(
         all_results, profile=profile,
         profile_source=profile_source, seed=seed,
@@ -254,6 +264,7 @@ async def run_gauntlet(
         _submit_to_community(
             model_name, provider, final_score, trust,
             list(all_scores), list(all_results), quick,
+            dict(module_versions),
         )
     except Exception as e:
         logger.warning("Community leaderboard submission failed: %s", e)
@@ -307,6 +318,7 @@ def _submit_to_community(
     all_scores: list,
     all_results: list,
     quick: bool,
+    module_versions: dict[str, str] | None = None,
 ) -> None:
     """Submit results to the community leaderboard via public API.
 
@@ -333,7 +345,18 @@ def _submit_to_community(
             fp = collect_fingerprint(model_name, provider)
             hw, rt, mc = fp.to_storage_dicts()
 
-            submit_result({
+            # Build attestation (Phase 1.3) combining module versions + hardware tier
+            from gauntlet.core.submit import build_attestation
+
+            attestation = build_attestation(
+                hardware_tier=fp.hardware_tier if fp else "",
+                benchmark_fingerprint=final_score.benchmark_fingerprint,
+                module_versions=final_score.module_versions,
+                suite_type="quick" if quick else "full",
+                probe_count=final_score.total_probes,
+            )
+
+            payload = {
                 "model_name": model_name,
                 "overall_score": final_score.overall_score,
                 "trust_score": trust.trust_score,
@@ -347,7 +370,14 @@ def _submit_to_community(
                 "hardware": hw,
                 "runtime": rt,
                 "model_config": mc,
-            })
+                "module_versions": module_versions or {},
+                "benchmark_fingerprint": final_score.benchmark_fingerprint,
+                "gauntlet_version": final_score.gauntlet_version,
+                "attestation": attestation,
+                "hardware_tier": attestation["hardware_tier"],
+            }
+
+            submit_result(payload)
         except Exception as e:
             logger.warning("Background community submission failed: %s", e)
 

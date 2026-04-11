@@ -96,6 +96,9 @@ class GauntletScore:
     total_probes: int = 0
     passed_probes: int = 0
     summary: str = ""
+    gauntlet_version: str = ""                              # from gauntlet.__version__
+    module_versions: dict[str, str] = field(default_factory=dict)  # {module_name: versioned_id}
+    benchmark_fingerprint: str = ""                         # SHA-256 of sorted module_versions
 
     def to_dict(self) -> dict:
         return {
@@ -108,6 +111,9 @@ class GauntletScore:
             "passed_probes": self.passed_probes,
             "summary": self.summary,
             "modules": [ms.to_dict() for ms in self.module_scores],
+            "gauntlet_version": self.gauntlet_version,
+            "module_versions": self.module_versions,
+            "benchmark_fingerprint": self.benchmark_fingerprint,
         }
 
 
@@ -115,10 +121,22 @@ class GauntletScore:
 # Scoring functions
 # ---------------------------------------------------------------------------
 
+def _compute_benchmark_fingerprint(module_versions: dict[str, str]) -> str:
+    """SHA-256 of sorted module_versions dict for deterministic fingerprinting."""
+    import hashlib
+    import json
+
+    if not module_versions:
+        return ""
+    blob = json.dumps(sorted(module_versions.items()), ensure_ascii=True).encode()
+    return hashlib.sha256(blob).hexdigest()[:16]
+
+
 def compute_gauntlet_score(
     model: str,
     module_scores: list[ModuleScore],
     profile: str = "raw",
+    module_versions: dict[str, str] | None = None,
 ) -> GauntletScore:
     """Compute the final Gauntlet score for a model.
 
@@ -126,6 +144,7 @@ def compute_gauntlet_score(
         model: Model name.
         module_scores: Scores from each module.
         profile: Which profile weights to apply.
+        module_versions: Optional {module_name: versioned_id} mapping.
 
     Returns:
         GauntletScore with overall grade and per-module breakdown.
@@ -164,6 +183,11 @@ def compute_gauntlet_score(
             f"{total_passed}/{total_probes} probes passed."
         )
 
+    # Populate version metadata
+    import gauntlet
+    mv = module_versions or {}
+    fingerprint = _compute_benchmark_fingerprint(mv)
+
     return GauntletScore(
         model=model,
         profile=profile,
@@ -174,6 +198,9 @@ def compute_gauntlet_score(
         total_probes=total_probes,
         passed_probes=total_passed,
         summary=summary,
+        gauntlet_version=gauntlet.__version__,
+        module_versions=mv,
+        benchmark_fingerprint=fingerprint,
     )
 
 

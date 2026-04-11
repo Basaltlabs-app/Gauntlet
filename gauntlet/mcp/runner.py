@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
+import gauntlet
 from gauntlet.core.trust_score import _MODULE_DEDUCTION_CAP
 from gauntlet.mcp.probes import get_suite
 
@@ -423,6 +424,13 @@ class GauntletRunner:
                 }
                 for t in self.completed
             ],
+        }
+
+        # Attestation (Phase 1.3)
+        result_dict["attestation"] = {
+            "gauntlet_version": gauntlet.__version__,
+            "suite_type": "quick" if self.quick else "full",
+            "probe_count": len(self.completed),
         }
 
         return {

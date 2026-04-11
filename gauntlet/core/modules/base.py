@@ -213,6 +213,36 @@ class GauntletModule(ABC):
     description: str = ""
     version: str = "0.1.0"
 
+    def content_hash(self) -> str:
+        """SHA-256 hash of canonical probe definitions for this module.
+
+        Provides drift detection: if probes change, hash changes automatically.
+        Uses seed=42 for deterministic probe generation.
+        """
+        import hashlib
+        import json
+
+        probes = self.build_probes(quick=False, seed=42)
+        # Canonical dict: only stable fields (id, name, severity, expected, messages content)
+        canonical = []
+        for p in probes:
+            entry = {
+                "id": p.id,
+                "name": p.name,
+                "severity": str(p.severity),
+                "expected": p.expected,
+                "messages": [(role, content) for role, content in p.messages],
+            }
+            canonical.append(entry)
+
+        blob = json.dumps(canonical, sort_keys=True, ensure_ascii=True).encode()
+        return hashlib.sha256(blob).hexdigest()[:8]
+
+    @property
+    def versioned_id(self) -> str:
+        """Full version including content hash: e.g. '0.1.0.a3f2bc91'"""
+        return f"{self.version}.{self.content_hash()}"
+
     @abstractmethod
     def build_probes(self, quick: bool = False, seed: int | None = None) -> list[Probe]:
         """Return all probes for this module.

@@ -89,6 +89,10 @@ class SystemFingerprint:
     provider: str = "unknown"          # ollama, openai, anthropic
     provider_version: str = ""         # Ollama version if local
 
+    # Tier classification (populated by hardware_tiers.classify)
+    hardware_tier: str = ""            # CLOUD, CONSUMER_HIGH, CONSUMER_MID, CONSUMER_LOW, EDGE
+    tier_label: str = ""               # Human-readable: "Cloud", "Consumer (High)", etc.
+
     def to_storage_dicts(self) -> tuple[dict, dict, dict]:
         """Split into (hardware, runtime, model_config) dicts for Supabase JSONB."""
         hardware = {
@@ -103,6 +107,7 @@ class SystemFingerprint:
             "vram_bucket": self.vram_bucket,
             "device_class": self.device_class,
             "os_platform": self.os_platform,
+            "hardware_tier": self.hardware_tier,
         }
         runtime = {
             "provider": self.provider,
@@ -393,5 +398,14 @@ def collect_fingerprint(
     # Model size
     if model_size_bytes > 0:
         fp.model_size_gb = round(model_size_bytes / (1024 ** 3), 1)
+
+    # Hardware tier classification
+    try:
+        from gauntlet.core.hardware_tiers import classify
+        tier = classify(fp)
+        fp.hardware_tier = tier.tier_name
+        fp.tier_label = tier.tier_label
+    except Exception:
+        pass  # non-critical — leave defaults
 
     return fp

@@ -28,6 +28,32 @@ def _sign_payload(body_bytes: bytes) -> str:
     return hmac.new(_SUBMIT_KEY.encode(), body_bytes, hashlib.sha256).hexdigest()
 
 
+def build_attestation(
+    hardware_tier: str = "",
+    benchmark_fingerprint: str = "",
+    module_versions: dict[str, str] | None = None,
+    suite_type: str = "full",
+    probe_count: int = 0,
+) -> dict:
+    """Build a standardized attestation dict for result provenance.
+
+    Combines module versioning (Phase 1.1), hardware tiers (Phase 1.2),
+    and submission metadata into a single attestation record that travels
+    with every community submission.
+    """
+    from datetime import datetime, timezone
+
+    return {
+        "gauntlet_version": __version__,
+        "benchmark_fingerprint": benchmark_fingerprint,
+        "module_versions": module_versions or {},
+        "hardware_tier": hardware_tier,
+        "submission_timestamp": datetime.now(timezone.utc).isoformat(),
+        "suite_type": suite_type,
+        "probe_count": probe_count,
+    }
+
+
 def submit_result(payload: dict, timeout: float = 10) -> Optional[httpx.Response]:
     """Submit a result payload to the community API with signing.
 

@@ -312,7 +312,23 @@ async def submit_handler(request: Request) -> Response:
             status_code=409, headers=CORS_HEADERS,
         )
 
-    # ── 11. probe_details size + shape validation ────────────────────────
+    # ── 11a. Attestation validation (optional, backward compatible) ──────
+    VALID_HARDWARE_TIERS = {"CLOUD", "CONSUMER_HIGH", "CONSUMER_MID", "CONSUMER_LOW", "EDGE", ""}
+    attestation = body.get("attestation")
+    if attestation is not None:
+        if not isinstance(attestation, dict):
+            return JSONResponse({"error": "Invalid attestation format"}, status_code=400, headers=CORS_HEADERS)
+        att_version = attestation.get("gauntlet_version", "")
+        if not isinstance(att_version, str) or not att_version:
+            return JSONResponse({"error": "Attestation missing gauntlet_version"}, status_code=400, headers=CORS_HEADERS)
+        att_tier = attestation.get("hardware_tier", "")
+        if not isinstance(att_tier, str) or att_tier not in VALID_HARDWARE_TIERS:
+            return JSONResponse(
+                {"error": f"Invalid attestation hardware_tier: {att_tier}"},
+                status_code=400, headers=CORS_HEADERS,
+            )
+
+    # ── 11b. probe_details size + shape validation ─────────────────────
     probe_details = body.get("probe_details")
     if probe_details is not None:
         if not isinstance(probe_details, dict) or len(probe_details) > 30:
@@ -370,6 +386,8 @@ async def submit_handler(request: Request) -> Response:
         quick=body.get("quick", False),
         fingerprint=fingerprint,
         probe_details=body.get("probe_details"),
+        attestation=body.get("attestation"),
+        hardware_tier=body.get("hardware_tier", ""),
     )
 
     return JSONResponse({"status": "ok"}, headers=CORS_HEADERS)
