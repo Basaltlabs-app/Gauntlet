@@ -66,7 +66,7 @@ function ModelChip({ model, index, isSelected, onToggle, color }) {
   )
 }
 
-export default function ControlPanel({ onRunStarted, onModelsSelected }) {
+export default function ControlPanel({ onRunStarted, onModelsSelected, sendMessage, benchmarkState, resetBenchmark }) {
   const [models, setModels] = useState([])
   const [selected, setSelected] = useState([])
   const [systemInfo, setSystemInfo] = useState(null)
@@ -124,6 +124,15 @@ export default function ControlPanel({ onRunStarted, onModelsSelected }) {
     setRunning(false)
   }
 
+  function handleBenchmarkStart(quick) {
+    if (!selected.length || !sendMessage) return
+    sendMessage({
+      action: 'start_benchmark',
+      models: selected,
+      quick: !!quick,
+    })
+  }
+
   async function handleBenchmark() {
     if (!selected.length) return
     setRunning(true)
@@ -160,7 +169,7 @@ export default function ControlPanel({ onRunStarted, onModelsSelected }) {
           transition={{ duration: 0.5 }}
           className="text-4xl md:text-5xl font-display font-bold tracking-tighter gradient-text-hero"
         >
-          Model Comparison
+          Test Models
         </motion.h1>
         <motion.p
           initial={{ opacity: 0, y: 8 }}
@@ -168,7 +177,7 @@ export default function ControlPanel({ onRunStarted, onModelsSelected }) {
           transition={{ duration: 0.5, delay: 0.06 }}
           className="text-[var(--text-dim)] max-w-lg"
         >
-          Select models, write a prompt, and evaluate them side by side.
+          Select models and choose a test mode. Every test contributes to the community dataset.
         </motion.p>
 
         {/* System info */}
@@ -316,50 +325,76 @@ export default function ControlPanel({ onRunStarted, onModelsSelected }) {
           }}
         />
 
-        {/* Action buttons */}
-        <div className="relative z-10 flex flex-wrap items-center gap-3 pt-1">
-          <motion.button
-            onClick={handleRun}
-            disabled={running || !selected.length || !prompt.trim()}
-            className="flex items-center gap-2.5 px-7 py-2.5 rounded-lg font-semibold text-sm btn-primary disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none disabled:transform-none"
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-          >
-            {running ? (
-              <>
-                <Loader2 size={15} className="animate-spin" />
-                Starting...
-              </>
-            ) : (
-              <>
-                <Play size={15} />
-                Run Comparison
-              </>
-            )}
-          </motion.button>
+        {/* Action buttons — 4 test modes */}
+        <div className="relative z-10 space-y-3 pt-1">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Compare: user prompt */}
+            <motion.button
+              onClick={handleRun}
+              disabled={running || !selected.length || !prompt.trim()}
+              className="flex items-center gap-2.5 px-6 py-2.5 rounded-lg font-semibold text-sm btn-primary disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none disabled:transform-none"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              {running ? (
+                <>
+                  <Loader2 size={15} className="animate-spin" />
+                  Starting...
+                </>
+              ) : (
+                <>
+                  <Play size={15} />
+                  Compare
+                </>
+              )}
+            </motion.button>
 
-          <motion.button
-            onClick={handleBenchmark}
-            disabled={running || !selected.length}
-            className="flex items-center gap-2.5 px-7 py-2.5 rounded-lg font-semibold text-sm btn-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-          >
-            <Gauge size={15} />
-            Quick Test
-          </motion.button>
+            {/* Divider */}
+            <span className="text-[var(--text-muted)] text-xs">or</span>
 
-          <div className="ml-auto flex items-center gap-5 text-[var(--text-muted)]">
+            {/* Benchmark modes */}
+            <motion.button
+              onClick={() => handleBenchmarkStart(true)}
+              disabled={running || !selected.length}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-sm btn-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <Gauge size={14} />
+              Quick Benchmark
+            </motion.button>
+
+            <motion.button
+              onClick={() => handleBenchmarkStart(false)}
+              disabled={running || !selected.length}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-sm border border-white/8 hover:border-white/15 text-[var(--cs-text)] disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <Gauge size={14} />
+              Full Benchmark
+            </motion.button>
+          </div>
+
+          {/* Info row */}
+          <div className="flex items-center gap-4 text-[var(--text-muted)]">
             <div className="flex items-center gap-1.5">
               <Timer size={12} />
               <span className="text-xs font-semibold">
                 {selected.length} model{selected.length !== 1 ? 's' : ''}
               </span>
             </div>
-            <span className="text-[10px] font-mono opacity-50">
+            <span className="text-[10px] text-[var(--text-muted)]">
+              Compare: custom prompt &bull; Quick: ~5 min &bull; Full: ~30 min
+            </span>
+            <span className="text-[10px] font-mono opacity-50 ml-auto">
               {navigator.platform?.includes('Mac') ? 'Cmd' : 'Ctrl'}+Enter
             </span>
           </div>
+
+          <p className="text-[10px] text-[var(--text-muted)] italic">
+            All test results contribute to the community dataset with your hardware metadata.
+          </p>
         </div>
       </section>
     </div>

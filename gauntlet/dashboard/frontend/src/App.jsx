@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Layers, Gauge, Timer, Target, Network, ListOrdered, BookOpen, Globe } from 'lucide-react'
+import { Layers, Gauge, Timer, Target, Network, ListOrdered, BookOpen, Globe, FlaskConical } from 'lucide-react'
 import { useWebSocket } from './hooks/useWebSocket'
 import { pageTransition, getModelColor } from './lib/animations'
 import Arena from './components/Arena'
@@ -17,8 +17,7 @@ import CommunityPanel from './components/CommunityPanel'
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`
 
 const TABS = [
-  { id: 'arena', label: 'Compare', icon: Layers },
-  { id: 'benchmark', label: 'Benchmark', icon: Gauge },
+  { id: 'test', label: 'Test', icon: FlaskConical },
   { id: 'speed', label: 'Speed', icon: Timer },
   { id: 'quality', label: 'Quality', icon: Target },
   { id: 'graph', label: 'Graph', icon: Network },
@@ -180,30 +179,34 @@ export default function App() {
         <AnimatePresence mode="wait">
           <motion.div key={activeTab} {...pageTransition}>
 
-            {activeTab === 'arena' && (
-              idle ? (
+            {activeTab === 'test' && (
+              idle && !benchmarkState?.status ? (
                 <motion.div
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.1 }}
                 >
-                  <ControlPanel onRunStarted={reconnect} onModelsSelected={setSelectedModels} />
+                  <ControlPanel
+                    onRunStarted={reconnect}
+                    onModelsSelected={setSelectedModels}
+                    sendMessage={sendMessage}
+                    benchmarkState={benchmarkState}
+                    resetBenchmark={resetBenchmark}
+                  />
                 </motion.div>
+              ) : benchmarkState?.status ? (
+                <BenchmarkPanel
+                  selectedModels={selectedModels}
+                  sendMessage={sendMessage}
+                  benchmarkState={benchmarkState}
+                  resetBenchmark={resetBenchmark}
+                />
               ) : (
                 <div className="space-y-5">
                   <Arena models={models} modelStates={modelStates} result={result} isJudging={isJudging} />
                   {result?.scoring && <ScoringBreakdown scoring={result.scoring} />}
                 </div>
               )
-            )}
-
-            {activeTab === 'benchmark' && (
-              <BenchmarkPanel
-                selectedModels={selectedModels}
-                sendMessage={sendMessage}
-                benchmarkState={benchmarkState}
-                resetBenchmark={resetBenchmark}
-              />
             )}
 
             {activeTab === 'speed' && (
