@@ -37,7 +37,7 @@ function StatusDot({ status }) {
 
 export default function App() {
   const { status, config, modelStates, result, leaderboard, isJudging, reconnect, sendMessage, benchmarkState, resetBenchmark } = useWebSocket(WS_URL)
-  const [activeTab, setActiveTab] = useState('arena')
+  const [activeTab, setActiveTab] = useState('test')
   const [selectedModels, setSelectedModels] = useState([])
 
   const models = config?.models || []
