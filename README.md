@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/gauntlet-v1.3.4-b08d6e?style=for-the-badge" alt="version" />
+  <img src="https://img.shields.io/badge/gauntlet-v1.4.0-b08d6e?style=for-the-badge" alt="version" />
 </p>
 
 <h1 align="center">Gauntlet</h1>
@@ -50,7 +50,7 @@ Gauntlet is a community-driven behavioral research platform. Every user who runs
 
 **How it scores**: fully deterministic (regex, pattern matching, AST parsing). No LLM-as-judge. 18 dynamic probe factories randomize values each run to prevent memorization.
 
-**What makes it different**: not a tool, a platform. Results from CLI, TUI, and dashboard feed the community dataset with hardware metadata, filterable by GPU, RAM, quantization, and provider.
+**What makes it different**: Think Steam's Hardware Survey, but for AI. Not a tool — a platform. Results from CLI, TUI, and dashboard feed a community dataset with hardware metadata. Every submission is classified into a hardware tier (Edge, Consumer Low/Mid/High, Cloud), scored with confidence intervals, and used to predict how models perform on hardware they haven't been tested on yet.
 
 ```bash
 pip install gauntlet-cli
@@ -93,6 +93,7 @@ Features:
 - **Speed Analysis**: tokens/sec, time-to-first-token, total generation time
 - **Quality Radar**: radar chart visualization of quality dimensions
 - **Trust Rankings**: persistent leaderboard across all comparisons
+- **Community Intelligence**: hardware survey, tier-stratified rankings, quantization degradation curves, and performance prediction — all powered by community data
 
 The dashboard runs locally. Benchmark scores (model name, grade, category scores) are shared with the [public leaderboard](https://basaltlabs.app/gauntlet/leaderboard) to build community rankings. No prompts, outputs, or personal data are transmitted. See [Data & Privacy](#data-and-privacy) for details.
 
@@ -100,13 +101,31 @@ The dashboard runs locally. Benchmark scores (model name, grade, category scores
 
 **Live at [basaltlabs.app/gauntlet/leaderboard](https://basaltlabs.app/gauntlet/leaderboard)**
 
-Every test from every user on every hardware configuration feeds a shared, open dataset. The leaderboard has three views:
+Every test from every user on every hardware configuration feeds a shared, open dataset. The leaderboard has five views:
 
 **Community** (local hardware results): Aggregated scores from users running models on their own machines. Filter by GPU class (Apple Silicon, NVIDIA, AMD, CPU-only), quantization level (Q4, Q8, FP16), provider, and OS. Find results from setups similar to yours.
 
+**Hardware Tiers**: Rankings stratified by hardware capability. Every submission is classified into one of five tiers based on GPU, VRAM, and RAM:
+
+| Tier | Hardware Examples | Typical Use |
+|---|---|---|
+| **Cloud** | API providers (OpenAI, Anthropic, Google), cloud VMs with A100/H100 | Cloud inference |
+| **Consumer High** | RTX 4090 (24GB), M3 Ultra (64GB+) | FP16 local inference |
+| **Consumer Mid** | RTX 3060 (12GB), M2 Pro (32GB) | Q8 local inference |
+| **Consumer Low** | GTX 1660 (6GB), M1 (16GB) | Q4 local inference |
+| **Edge** | CPU-only, <16GB RAM, integrated GPU | Heavily quantized or small models |
+
+See how a model ranks *on hardware like yours*, not averaged across everything.
+
+**Quantization Impact**: How scores degrade from FP16 to Q8 to Q4 for a given model family and size, with confidence intervals. Helps you decide whether the quantization tradeoff is worth it on your hardware.
+
+**Performance Prediction**: Enter any model and hardware tier to get a predicted score based on collaborative filtering across community data. Shows confidence level, prediction basis (direct measurement vs. interpolation), and similar models used.
+
+**Certification**: Models that meet quality thresholds across enough community submissions earn certification badges (Gold, Silver, Bronze) — similar to how games earn Steam Deck verification badges.
+
 **Elo Rankings**: Win/loss/draw records from head-to-head `gauntlet compare` runs. Elo ratings update in real-time across all users.
 
-**MCP Self-Tests**: Results from AI models testing themselves via the MCP server are stored separately and not displayed on the community dashboard. MCP runs on cloud infrastructure with self-reported model names, so the data lacks the hardware fingerprint and verified model metadata that community CLI runs provide.
+**MCP Self-Tests**: Results from AI models testing themselves via the MCP server are stored separately. MCP runs on cloud infrastructure with self-reported model names, so the data lacks the hardware fingerprint that community CLI runs provide.
 
 ### Filterable by Hardware
 
@@ -138,6 +157,16 @@ Read-only, CORS-enabled endpoints at `https://gauntlet.basaltlabs.app` for build
 |---|---|
 | `GET /api/leaderboard` | Elo ratings from head-to-head comparisons |
 | `GET /api/leaderboard/history` | Aggregated test stats with sparkline data |
+| `GET /api/leaderboard/tier?tier=CONSUMER_MID` | Rankings within a hardware tier, with confidence intervals |
+| `GET /api/leaderboard/tiers` | Hardware tier distribution across all submissions |
+| `GET /api/leaderboard/stats` | Community aggregate statistics |
+| `GET /api/predict?model=X&tier=Y` | Predicted score via collaborative filtering |
+| `GET /api/recommend?model=X&min_score=75` | Recommended hardware tier for a target score |
+| `GET /api/degradation?model_family=X&parameter_size=Y` | Quantization impact curves with CI |
+| `GET /api/survey` | Community hardware distribution (tier, GPU, RAM, OS, quantization %) |
+| `GET /api/certification?model=X` | Certification status (gold/silver/bronze/uncertified) |
+| `GET /api/badge?model=X&tier=Y&format=svg` | Embeddable SVG badge |
+| `GET /api/health` | API health check with database latency |
 
 **Filter parameters** for `/api/leaderboard/history`:
 
@@ -150,6 +179,8 @@ Read-only, CORS-enabled endpoints at `https://gauntlet.basaltlabs.app` for build
 | `source` | cli, tui, dashboard, mcp |
 | `exclude_source` | mcp (default for community dashboard) |
 | `min_tests` | 3 (minimum submissions to include) |
+
+**Valid hardware tiers** for `/api/leaderboard/tier` and `/api/predict`: `CLOUD`, `CONSUMER_HIGH`, `CONSUMER_MID`, `CONSUMER_LOW`, `EDGE`
 
 See [Data and Privacy](#data-and-privacy) for exactly what is and is not shared.
 
@@ -296,6 +327,17 @@ Rather than binary classification (caves vs. holds), the sycophancy gradient map
 
 This gradient serves as a behavioral fingerprint: models that cave at level 3 (authority) but hold through level 2 (peer) exhibit a distinct vulnerability pattern from those that cave at level 2 but hold through level 1.
 
+### Reproducibility and Versioning
+
+Every benchmark result includes a provenance chain that ties the score to the exact benchmark configuration:
+
+- **Module versioning**: Each of the 17 modules has a `content_hash` — a SHA-256 of its canonical probe definitions. The version string is `"{declared_version}.{hash[:8]}"` (e.g., `0.1.0.a3f2bc91`). If probes change, the hash changes automatically.
+- **Benchmark fingerprint**: A SHA-256 of the sorted module version dict. Two runs with identical fingerprints tested the exact same probes.
+- **Result attestation**: Every community submission includes `gauntlet_version`, `benchmark_fingerprint`, `module_versions`, `hardware_tier`, and a UTC timestamp.
+- **Seeded randomization**: Dynamic probe factories accept a `--seed` parameter. Same seed, same module versions, same hardware = identical probes.
+
+This means any community result can be independently verified: run the same Gauntlet version with the same seed and confirm the fingerprint matches.
+
 ---
 
 ## Evaluation Profiles
@@ -379,6 +421,15 @@ gauntlet ci ollama/qwen3.5:4b --quick
 
 ```bash
 pip install gauntlet-cli
+```
+
+**Optional extras:**
+```bash
+pip install gauntlet-cli[stats]          # scipy for precise confidence intervals
+pip install gauntlet-cli[anthropic]      # Anthropic provider
+pip install gauntlet-cli[openai]         # OpenAI provider
+pip install gauntlet-cli[google]         # Google AI provider
+pip install gauntlet-cli[all-providers]  # All cloud providers
 ```
 
 **Requirements:**
@@ -480,7 +531,7 @@ Gauntlet addresses limitations in existing evaluation frameworks:
 | TrustLLM (ICML 2024) | Trustworthiness (6 dims) | Mixed (LLM + auto) | No | Static dataset |
 | **Gauntlet** | Behavioral reliability (16 dims) | Fully deterministic | Yes (up to 25 turns) | 18 dynamic factories |
 
-Key differentiators: (1) no reliance on LLM-as-judge, eliminating judge model bias; (2) multi-turn behavioral protocols (sycophancy gradient, temporal coherence, instruction decay); (3) dynamic probe factories preventing benchmark contamination through memorization; (4) novel evaluation dimensions (confidence calibration via ECE, instruction decay rate, pressure threshold mapping); (5) community-aggregated results with hardware metadata, enabling filterable cross-hardware comparison that no single-lab benchmark can provide.
+Key differentiators: (1) no reliance on LLM-as-judge, eliminating judge model bias; (2) multi-turn behavioral protocols (sycophancy gradient, temporal coherence, instruction decay); (3) dynamic probe factories preventing benchmark contamination through memorization; (4) novel evaluation dimensions (confidence calibration via ECE, instruction decay rate, pressure threshold mapping); (5) community-aggregated results with hardware metadata, enabling filterable cross-hardware comparison that no single-lab benchmark can provide; (6) hardware tier classification with statistical rigor (confidence intervals, outlier detection) and collaborative filtering for performance prediction across untested configurations; (7) certification program (Gold/Silver/Bronze) providing standardized trust signals for model selection.
 
 ---
 
@@ -504,5 +555,5 @@ MIT
 
 <p align="center">
   Built by <a href="https://basaltlabs.ai">Basalt Labs</a><br>
-  <sub>Community-driven behavioral research for large language models.</sub>
+  <sub>The trust layer for AI. Community-driven behavioral research across real hardware.</sub>
 </p>
