@@ -43,9 +43,14 @@ def _build_verify_from_yaml(verify_spec: dict):
         checks = {}
 
         # Length check
-        if min_length and len(text) < min_length:
-            checks["min_length"] = False
+        if min_length:
+            if len(text) < min_length:
+                checks["min_length"] = False
+            else:
+                checks["min_length"] = True
+                score += 0.2
         else:
+            # No length constraint — give credit
             checks["min_length"] = True
             score += 0.2
 

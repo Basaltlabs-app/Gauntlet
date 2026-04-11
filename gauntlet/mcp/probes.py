@@ -599,9 +599,10 @@ def _make_capitals_probe():
 
     def _verify(responses, _expected=expected):
         answers = list(zip(_expected, responses))
+        n = len(_expected)
         correct = sum(1 for exp, got in answers if exp in got.strip().lower())
         details = [{"expected": e, "got": g.strip()[:50], "correct": e in g.strip().lower()} for e, g in answers]
-        return correct / 3, correct == 3, {"correct": correct, "total": 3, "details": details}
+        return correct / n, correct == n, {"correct": correct, "total": n, "details": details}
 
     return {
         "name": "Capital Cities",
@@ -642,9 +643,10 @@ def _make_math_probe():
 
     def _verify(responses, _expected=expected):
         answers = list(zip(_expected, responses))
+        n = len(_expected)
         correct = sum(1 for exp, got in answers if exp in got.strip())
         details = [{"expected": e, "got": g.strip()[:30], "correct": e in g.strip()} for e, g in answers]
-        return correct / 3, correct == 3, {"correct": correct, "total": 3, "details": details}
+        return correct / n, correct == n, {"correct": correct, "total": n, "details": details}
 
     return {
         "name": "Math Facts",
@@ -3265,8 +3267,6 @@ def _reconstruct_factory_probe(saved: dict) -> dict:
                     random.randint = old_randint
                     random.choice = old_choice
         except Exception:
-            pass
-        finally:
             random.randint = old_randint
             random.choice = old_choice
         return _make_math_probe()
