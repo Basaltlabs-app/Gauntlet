@@ -140,10 +140,20 @@ class TestComputeStatistics:
         assert stats.outlier_count >= 1
 
     def test_confidence_level_stored(self):
-        """Custom confidence level should be stored in result."""
-        stats = compute_statistics([1.0, 2.0, 3.0, 4.0, 5.0], confidence=0.99)
+        """Stored confidence_level reflects what was actually computed.
+
+        Without scipy, non-95% confidence falls back to 95% and the stored
+        level reflects the actual computation (0.95), not the requested value.
+        """
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            stats = compute_statistics([1.0, 2.0, 3.0, 4.0, 5.0], confidence=0.99)
         assert stats is not None
-        assert stats.confidence_level == 0.99
+        # Without scipy, falls back to 95%; with scipy, uses 99%
+        from gauntlet.core.statistics import HAS_SCIPY
+        expected = 0.99 if HAS_SCIPY else 0.95
+        assert stats.confidence_level == expected
 
 
 # ---------------------------------------------------------------------------

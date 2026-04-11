@@ -4,6 +4,11 @@ Exposes:
   /mcp                      - MCP streamable-http transport
   /api/leaderboard          - Public leaderboard JSON (Elo ratings)
   /api/leaderboard/history  - Test history + aggregated stats for graphs
+  /api/leaderboard/tier     - Hardware-stratified leaderboard per tier
+  /api/leaderboard/tiers    - Aggregate overview across all hardware tiers
+  /api/degradation           - Quantization degradation curves per model family
+  /api/survey                - Community hardware distribution survey
+  /api/badge                 - Embeddable SVG badges (shields.io style)
   /api/health               - Health check endpoint
 """
 
@@ -213,8 +218,10 @@ async def submit_handler(request: Request) -> Response:
     12-point validation prevents fake, duplicate, and abusive submissions.
     """
     # ── 1. Rate limiting (per IP) ────────────────────────────────────────
-    client_ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-                 or request.client.host if request.client else "unknown")
+    client_ip = (
+        request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        or (request.client.host if request.client else "unknown")
+    )
     if not _check_rate_limit(client_ip):
         return JSONResponse(
             {"error": "Rate limit exceeded. Max 10 submissions per minute."},
@@ -287,8 +294,9 @@ async def submit_handler(request: Request) -> Response:
     # Overall score should be roughly consistent with category averages
     if cat_scores:
         cat_avg = sum(cat_scores.values()) / len(cat_scores)
-        # Allow 25-point tolerance (profiles weight categories differently)
-        if abs(overall_score - cat_avg) > 25:
+        # Allow 40-point tolerance (profile weights differ 0.3-1.0x across modules,
+        # so weighted overall can diverge substantially from unweighted category mean)
+        if abs(overall_score - cat_avg) > 40:
             return JSONResponse(
                 {"error": "Score inconsistency: overall score doesn't match category averages"},
                 status_code=400, headers=CORS_HEADERS,
@@ -404,6 +412,62 @@ async def stats_handler(request: Request) -> Response:
     return JSONResponse(stats, headers=CORS_HEADERS)
 
 
+async def tier_leaderboard_handler(request: Request) -> Response:
+    """GET /api/leaderboard/tier?tier=CONSUMER_MID — ranked models within a hardware tier."""
+    from gauntlet.mcp.history_store import get_tier_leaderboard, is_available
+
+    VALID_TIERS = {"CLOUD", "CONSUMER_HIGH", "CONSUMER_MID", "CONSUMER_LOW", "EDGE"}
+
+    tier = request.query_params.get("tier", "")
+    if not tier:
+        return JSONResponse(
+            {"error": "Missing required parameter: tier"},
+            status_code=400, headers=CORS_HEADERS,
+        )
+    if tier not in VALID_TIERS:
+        return JSONResponse(
+            {"error": f"Invalid tier: {tier}. Must be one of: {', '.join(sorted(VALID_TIERS))}"},
+            status_code=400, headers=CORS_HEADERS,
+        )
+
+    if not is_available():
+        return JSONResponse(
+            {"error": "Storage not configured"}, status_code=503, headers=CORS_HEADERS,
+        )
+
+    limit = 50
+    try:
+        limit = int(request.query_params.get("limit", "50"))
+        limit = max(1, min(limit, 200))
+    except ValueError:
+        pass
+
+    models = get_tier_leaderboard(tier, limit=limit)
+    return JSONResponse(
+        {
+            "tier": tier,
+            "models": models,
+            "total": len(models),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+        headers=CORS_HEADERS,
+    )
+
+
+async def tiers_overview_handler(request: Request) -> Response:
+    """GET /api/leaderboard/tiers — aggregate stats per hardware tier."""
+    from gauntlet.mcp.history_store import get_tier_distribution, is_available
+
+    if not is_available():
+        return JSONResponse(
+            {"tiers": [], "total_submissions": 0, "note": "Storage not configured"},
+            headers=CORS_HEADERS,
+        )
+
+    distribution = get_tier_distribution()
+    return JSONResponse(distribution, headers=CORS_HEADERS)
+
+
 async def model_detail_handler(request: Request) -> Response:
     """GET /api/leaderboard/model?name=qwen3.5:4b -- per-hardware breakdown for one model."""
     from gauntlet.mcp.history_store import get_model_detail, is_available
@@ -420,6 +484,185 @@ async def model_detail_handler(request: Request) -> Response:
         return JSONResponse({"error": f"No data for model: {model_name}"}, status_code=404, headers=CORS_HEADERS)
 
     return JSONResponse(detail, headers=CORS_HEADERS)
+
+
+async def degradation_handler(request: Request) -> Response:
+    """GET /api/degradation?model_family=llama&parameter_size=7b
+
+    Returns quantization degradation curves for a model family + size.
+    Groups scores by quantization level, computes statistics and
+    pairwise score drops using compute_degradation().
+    """
+    from gauntlet.mcp.history_store import get_scores_by_quantization, is_available
+    from gauntlet.core.statistics import compute_statistics, compute_degradation
+
+    model_family = request.query_params.get("model_family", "")
+    parameter_size = request.query_params.get("parameter_size", "")
+
+    if not model_family or not parameter_size:
+        return JSONResponse(
+            {"error": "Missing required parameters: model_family and parameter_size"},
+            status_code=400, headers=CORS_HEADERS,
+        )
+
+    if not is_available():
+        return JSONResponse(
+            {"error": "Storage not configured"}, status_code=503, headers=CORS_HEADERS,
+        )
+
+    scores_by_quant = get_scores_by_quantization(model_family, parameter_size)
+    if not scores_by_quant:
+        return JSONResponse(
+            {"error": f"No data for model_family={model_family}, parameter_size={parameter_size}"},
+            status_code=404, headers=CORS_HEADERS,
+        )
+
+    # Compute per-level statistics
+    levels = {}
+    for quant, scores in scores_by_quant.items():
+        stats = compute_statistics(scores)
+        if stats is not None:
+            levels[quant] = {
+                "mean": stats.mean,
+                "sample_size": stats.sample_size,
+                "ci_lower": stats.ci_lower,
+                "ci_upper": stats.ci_upper,
+            }
+
+    # Compute degradation drops
+    degradation = compute_degradation(scores_by_quant)
+
+    return JSONResponse(
+        {
+            "model_family": model_family,
+            "parameter_size": parameter_size,
+            "levels": levels,
+            "degradation": degradation,
+        },
+        headers=CORS_HEADERS,
+    )
+
+
+async def survey_handler(request: Request) -> Response:
+    """GET /api/survey — community hardware distribution survey.
+
+    Aggregates hardware distribution across all submissions and
+    returns percentage breakdowns for tiers, GPUs, RAM, OS, and quantization.
+    """
+    from gauntlet.mcp.history_store import get_survey_stats, is_available
+
+    if not is_available():
+        return JSONResponse({"total_submissions": 0}, headers=CORS_HEADERS)
+
+    stats = get_survey_stats()
+    return JSONResponse(stats, headers=CORS_HEADERS)
+
+
+# ---------------------------------------------------------------------------
+# Badge SVG generation
+# ---------------------------------------------------------------------------
+
+# Grade-to-color mapping for badges
+_BADGE_COLORS = {
+    "A": "#4c1",
+    "B": "#a4a61d",
+    "C": "#dfb317",
+    "D": "#fe7d37",
+    "F": "#e05d44",
+}
+
+_BADGE_GRAY = "#9f9f9f"
+
+
+def _generate_badge_svg(label: str, value: str, color: str) -> str:
+    """Generate a shields.io-style SVG badge."""
+    label_width = len(label) * 6.5 + 10
+    value_width = len(value) * 6.5 + 10
+    total_width = label_width + value_width
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{total_width}" height="20">
+  <linearGradient id="b" x2="0" y2="100%">
+    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
+    <stop offset="1" stop-opacity=".1"/>
+  </linearGradient>
+  <clipPath id="a"><rect width="{total_width}" height="20" rx="3"/></clipPath>
+  <g clip-path="url(#a)">
+    <rect width="{label_width}" height="20" fill="#555"/>
+    <rect x="{label_width}" width="{value_width}" height="20" fill="{color}"/>
+    <rect width="{total_width}" height="20" fill="url(#b)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,sans-serif" font-size="11">
+    <text x="{label_width/2}" y="15" fill="#010101" fill-opacity=".3">{label}</text>
+    <text x="{label_width/2}" y="14">{label}</text>
+    <text x="{label_width + value_width/2}" y="15" fill="#010101" fill-opacity=".3">{value}</text>
+    <text x="{label_width + value_width/2}" y="14">{value}</text>
+  </g>
+</svg>'''
+
+
+async def badge_handler(request: Request) -> Response:
+    """GET /api/badge?model=qwen2.5:14b&tier=CONSUMER_MID&format=svg
+
+    Returns an SVG badge showing the model's grade on the specified tier.
+    Designed for embedding in READMEs and documentation.
+    """
+    model = request.query_params.get("model", "")
+    tier = request.query_params.get("tier", "")
+
+    badge_headers = {
+        **CORS_HEADERS,
+        "Content-Type": "image/svg+xml",
+        "Cache-Control": "public, max-age=3600",
+    }
+
+    if not model:
+        svg = _generate_badge_svg("gauntlet", "no data", _BADGE_GRAY)
+        return Response(svg, media_type="image/svg+xml", headers=badge_headers)
+
+    # Look up model data
+    from gauntlet.mcp.history_store import is_available
+    if not is_available():
+        svg = _generate_badge_svg("gauntlet", "no data", _BADGE_GRAY)
+        return Response(svg, media_type="image/svg+xml", headers=badge_headers)
+
+    try:
+        if tier:
+            # Tier-specific lookup
+            from gauntlet.mcp.history_store import get_tier_leaderboard
+            models = get_tier_leaderboard(tier, limit=200)
+            match = next((m for m in models if m["model_name"] == model), None)
+            if match:
+                grade = match.get("grade", "?")
+                score = match.get("mean", 0)
+            else:
+                grade = None
+                score = None
+        else:
+            # Global lookup
+            from gauntlet.mcp.history_store import get_model_detail
+            detail = get_model_detail(model)
+            if detail:
+                grade = detail.get("overall", {}).get("grade", "?")
+                score = detail.get("overall", {}).get("avg_score", 0)
+            else:
+                grade = None
+                score = None
+    except Exception:
+        grade = None
+        score = None
+
+    if grade is None:
+        svg = _generate_badge_svg("gauntlet", "no data", _BADGE_GRAY)
+        return Response(svg, media_type="image/svg+xml", headers=badge_headers)
+
+    # Build label and value
+    label = "gauntlet"
+    # Use just the first letter of grade for color mapping
+    grade_letter = grade[0].upper() if grade and grade[0].upper() in _BADGE_COLORS else "F"
+    color = _BADGE_COLORS.get(grade_letter, _BADGE_GRAY)
+
+    value = f"{grade} ({score:.1f})" if isinstance(score, (int, float)) and score > 0 else grade
+    svg = _generate_badge_svg(label, value, color)
+    return Response(svg, media_type="image/svg+xml", headers=badge_headers)
 
 
 async def health_handler(request: Request) -> Response:
@@ -481,8 +724,18 @@ class _CombinedApp:
                 Route("/api/health", health_handler, methods=["GET"]),
                 Route("/api/submit", submit_handler, methods=["POST"]),
                 Route("/api/submit", cors_preflight, methods=["OPTIONS"]),
+                Route("/api/degradation", degradation_handler, methods=["GET"]),
+                Route("/api/degradation", cors_preflight, methods=["OPTIONS"]),
+                Route("/api/survey", survey_handler, methods=["GET"]),
+                Route("/api/survey", cors_preflight, methods=["OPTIONS"]),
+                Route("/api/badge", badge_handler, methods=["GET"]),
+                Route("/api/badge", cors_preflight, methods=["OPTIONS"]),
                 Route("/api/leaderboard/stats", stats_handler, methods=["GET"]),
                 Route("/api/leaderboard/stats", cors_preflight, methods=["OPTIONS"]),
+                Route("/api/leaderboard/tier", tier_leaderboard_handler, methods=["GET"]),
+                Route("/api/leaderboard/tier", cors_preflight, methods=["OPTIONS"]),
+                Route("/api/leaderboard/tiers", tiers_overview_handler, methods=["GET"]),
+                Route("/api/leaderboard/tiers", cors_preflight, methods=["OPTIONS"]),
                 Route("/api/leaderboard/model", model_detail_handler, methods=["GET"]),
                 Route("/api/leaderboard/model", cors_preflight, methods=["OPTIONS"]),
                 Route("/api/leaderboard/history", history_handler, methods=["GET"]),

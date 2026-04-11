@@ -378,7 +378,7 @@ class GauntletModule(ABC):
         probes = self.build_probes(quick=quick, seed=seed)
         result = ModuleResult(
             module_name=self.name,
-            module_version=self.version,
+            module_version=self.versioned_id,
             model=client.model_name,
         )
 

@@ -142,7 +142,7 @@ def classify(fingerprint: SystemFingerprint) -> HardwareTier:
 
 def classify_from_dicts(
     hardware: dict,
-    runtime: dict,
+    runtime: Optional[dict] = None,
     model_config: Optional[dict] = None,
 ) -> HardwareTier:
     """Classify from stored JSONB dicts (for existing submissions)."""

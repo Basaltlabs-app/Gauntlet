@@ -303,12 +303,56 @@ def gauntlet_results() -> str:
 
 
 @mcp.tool()
-def gauntlet_leaderboard() -> str:
+def gauntlet_leaderboard(tier: str = "") -> str:
     """View the persistent Gauntlet leaderboard.
 
     Shows trust rankings built from all comparisons and benchmarks across sessions.
+
+    Args:
+        tier: Optional hardware tier filter. One of: CLOUD, CONSUMER_HIGH,
+              CONSUMER_MID, CONSUMER_LOW, EDGE. When set, shows rankings
+              only from that hardware tier with confidence intervals.
+              Leave empty for the global Elo leaderboard.
     """
-    # Try Supabase first (public leaderboard), fall back to local file
+    VALID_TIERS = {"CLOUD", "CONSUMER_HIGH", "CONSUMER_MID", "CONSUMER_LOW", "EDGE"}
+    tier = tier.strip().upper()
+
+    # ── Tier-filtered leaderboard (community intelligence) ──────────────
+    if tier and tier in VALID_TIERS:
+        try:
+            from gauntlet.mcp.history_store import get_tier_leaderboard, is_available
+            if not is_available():
+                return f"Community data unavailable. Cannot show tier leaderboard for {tier}."
+            entries = get_tier_leaderboard(tier)
+        except Exception as e:
+            logger.warning("Failed to fetch tier leaderboard: %s", e)
+            return f"Error fetching tier leaderboard: try again later."
+
+        if not entries:
+            return f"No community data yet for hardware tier {tier}. Run benchmarks to contribute!"
+
+        from gauntlet.core.hardware_tiers import _TIER_LABELS, Tier
+        tier_label = _TIER_LABELS.get(Tier[tier], tier)
+
+        lines = [f"GAUNTLET RANKINGS — {tier_label}", "=" * 60, ""]
+        lines.append(f"  {'#':<4s} {'Model':<25s} {'Score':>6s}  {'95% CI':>14s}  {'n':>4s}  {'Grade':>5s}")
+        lines.append("  " + "-" * 56)
+
+        for i, e in enumerate(entries):
+            ci = f"[{e['ci_lower']:.1f}–{e['ci_upper']:.1f}]"
+            reliable = "" if e.get("is_reliable", True) else " *"
+            lines.append(
+                f"  {i+1:<4d} {e['model_name']:<25s} {e['mean']:>6.1f}  {ci:>14s}  {e['sample_size']:>4d}  {e.get('grade', '?'):>5s}{reliable}"
+            )
+
+        lines.append("")
+        lines.append(f"  {len(entries)} models on {tier_label} hardware")
+        if any(not e.get("is_reliable", True) for e in entries):
+            lines.append("  * = fewer than 5 samples (low confidence)")
+        lines.append("=" * 60)
+        return "\n".join(lines)
+
+    # ── Global Elo leaderboard (original behavior) ─────────────────────
     models = []
     try:
         from gauntlet.mcp.leaderboard_store import get_leaderboard, is_available
@@ -339,6 +383,7 @@ def gauntlet_leaderboard() -> str:
 
     lines.append("")
     lines.append(f"  {len(models)} models ranked")
+    lines.append("  Tip: Use tier='CONSUMER_MID' to see hardware-specific rankings")
     lines.append("=" * 60)
     return "\n".join(lines)
 

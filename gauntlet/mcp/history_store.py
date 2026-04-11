@@ -443,6 +443,303 @@ def get_community_stats() -> dict:
         return {}
 
 
+def get_tier_leaderboard(tier: str, limit: int = 50) -> list[dict]:
+    """Get ranked models within a hardware tier with statistics.
+
+    Queries rows matching the given hardware_tier, groups by model_name,
+    computes ScoreStatistics per model, and returns ranked by mean score.
+
+    Args:
+        tier: One of CLOUD, CONSUMER_HIGH, CONSUMER_MID, CONSUMER_LOW, EDGE.
+        limit: Maximum number of models to return.
+
+    Returns:
+        List of dicts with model_name, mean, ci_lower, ci_upper,
+        sample_size, grade, is_reliable -- sorted by mean descending.
+    """
+    if not is_available():
+        return []
+
+    try:
+        from gauntlet.core.statistics import compute_statistics
+
+        params: dict = {
+            "select": "model_name,overall_score,grade,hardware_tier",
+            "order": "timestamp.desc",
+            "limit": "1000",
+            "hardware_tier": f"eq.{tier}",
+        }
+
+        resp = httpx.get(
+            _table_url(),
+            headers={**_headers(), "Prefer": "return=representation"},
+            params=params,
+            timeout=5,
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+
+        if not rows:
+            return []
+
+        # Group by model
+        model_scores: dict[str, list[float]] = {}
+        model_grades: dict[str, list[str]] = {}
+        for row in rows:
+            name = row["model_name"]
+            if name not in model_scores:
+                model_scores[name] = []
+                model_grades[name] = []
+            if row.get("overall_score") is not None:
+                model_scores[name].append(row["overall_score"])
+            if row.get("grade"):
+                model_grades[name].append(row["grade"])
+
+        # Compute statistics per model
+        result = []
+        for name, scores in model_scores.items():
+            if not scores:
+                continue
+            stats = compute_statistics(scores)
+            if stats is None:
+                continue
+            result.append({
+                "model_name": name,
+                "mean": stats.mean,
+                "ci_lower": stats.ci_lower,
+                "ci_upper": stats.ci_upper,
+                "sample_size": stats.sample_size,
+                "grade": model_grades[name][0] if model_grades[name] else "?",
+                "is_reliable": stats.is_reliable,
+            })
+
+        # Rank by mean descending
+        result.sort(key=lambda x: x["mean"], reverse=True)
+        return result[:limit]
+    except Exception as e:
+        logger.warning(f"Failed to get tier leaderboard for {tier}: {e}")
+        return []
+
+
+def get_tier_distribution() -> dict:
+    """Get aggregate statistics per hardware tier.
+
+    Returns the 'Steam hardware survey' view: unique models, total tests,
+    and average score per tier.
+    """
+    if not is_available():
+        return {"tiers": [], "total_submissions": 0, "last_updated": None}
+
+    try:
+        params: dict = {
+            "select": "hardware_tier,model_name,overall_score,timestamp",
+            "order": "timestamp.desc",
+            "limit": "2000",
+            # Only include rows that have a hardware_tier set
+            "hardware_tier": "neq.",
+        }
+
+        resp = httpx.get(
+            _table_url(),
+            headers={**_headers(), "Prefer": "return=representation"},
+            params=params,
+            timeout=5,
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+
+        if not rows:
+            return {
+                "tiers": [],
+                "total_submissions": 0,
+                "last_updated": datetime.now(timezone.utc).isoformat(),
+            }
+
+        # Tier labels mapping
+        tier_labels = {
+            "CLOUD": "Cloud",
+            "CONSUMER_HIGH": "Consumer (High)",
+            "CONSUMER_MID": "Consumer (Mid)",
+            "CONSUMER_LOW": "Consumer (Low)",
+            "EDGE": "Edge Device",
+        }
+
+        # Aggregate per tier
+        tier_data: dict[str, dict] = {}
+        for row in rows:
+            t = row.get("hardware_tier", "")
+            if not t or t not in tier_labels:
+                continue
+            if t not in tier_data:
+                tier_data[t] = {"models": set(), "scores": [], "count": 0}
+            tier_data[t]["count"] += 1
+            tier_data[t]["models"].add(row["model_name"])
+            if row.get("overall_score") is not None:
+                tier_data[t]["scores"].append(row["overall_score"])
+
+        tiers = []
+        for tier_name in ["CLOUD", "CONSUMER_HIGH", "CONSUMER_MID", "CONSUMER_LOW", "EDGE"]:
+            data = tier_data.get(tier_name)
+            if data:
+                avg = round(sum(data["scores"]) / len(data["scores"]), 1) if data["scores"] else 0
+                tiers.append({
+                    "tier": tier_name,
+                    "label": tier_labels[tier_name],
+                    "total_tests": data["count"],
+                    "unique_models": len(data["models"]),
+                    "avg_score": avg,
+                })
+            else:
+                tiers.append({
+                    "tier": tier_name,
+                    "label": tier_labels[tier_name],
+                    "total_tests": 0,
+                    "unique_models": 0,
+                    "avg_score": 0,
+                })
+
+        total = sum(d["count"] for d in tier_data.values())
+
+        return {
+            "tiers": tiers,
+            "total_submissions": total,
+            "last_updated": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.warning(f"Failed to get tier distribution: {e}")
+        return {"tiers": [], "total_submissions": 0, "last_updated": None}
+
+
+def get_scores_by_quantization(model_family: str, parameter_size: str) -> dict[str, list[float]]:
+    """Get overall_scores grouped by quantization for a model family+size.
+
+    Queries test history where model_config family and parameter_size match,
+    then groups the results by quantization level.
+
+    Returns: {"fp16": [85.2, 84.1, ...], "q8_0": [82.3, ...], ...}
+    """
+    if not is_available():
+        return {}
+
+    try:
+        params: dict = {
+            "select": "overall_score,model_config",
+            "order": "timestamp.desc",
+            "limit": "500",
+            "model_config->>family": f"ilike.*{model_family}*",
+            "model_config->>parameter_size": f"ilike.*{parameter_size}*",
+        }
+
+        resp = httpx.get(
+            _table_url(),
+            headers={**_headers(), "Prefer": "return=representation"},
+            params=params,
+            timeout=5,
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+
+        result: dict[str, list[float]] = {}
+        for row in rows:
+            mc = row.get("model_config") or {}
+            quant = mc.get("quantization", "unknown")
+            score = row.get("overall_score")
+            if score is not None:
+                # Normalize quantization key to lowercase
+                quant_key = quant.lower().strip()
+                if quant_key not in result:
+                    result[quant_key] = []
+                result[quant_key].append(score)
+
+        return result
+    except Exception as e:
+        logger.warning(f"Failed to get scores by quantization: {e}")
+        return {}
+
+
+def get_survey_stats() -> dict:
+    """Get hardware survey statistics with percentage distributions.
+
+    Aggregates hardware distribution across all community submissions,
+    returning percentages for tier, GPU, RAM, OS, and quantization.
+    """
+    if not is_available():
+        return {"total_submissions": 0}
+
+    try:
+        rows = _get_filtered_history(exclude_source="mcp", limit=1000)
+        if not rows:
+            return {"total_submissions": 0}
+
+        total = len(rows)
+        tier_dist: dict[str, int] = {}
+        gpu_dist: dict[str, int] = {}
+        ram_dist: dict[str, int] = {}
+        os_dist: dict[str, int] = {}
+        quant_dist: dict[str, int] = {}
+
+        for row in rows:
+            hw = row.get("hardware") or {}
+            mc = row.get("model_config") or {}
+            rt = row.get("runtime") or {}
+
+            # Hardware tier classification
+            if hw or rt:
+                try:
+                    from gauntlet.core.hardware_tiers import classify_from_dicts
+                    tier_result = classify_from_dicts(hw, rt, mc)
+                    tier_name = tier_result.tier_name
+                except Exception:
+                    tier_name = "UNKNOWN"
+            else:
+                tier_name = "UNKNOWN"
+            tier_dist[tier_name] = tier_dist.get(tier_name, 0) + 1
+
+            gpu = hw.get("gpu_class", "unknown")
+            gpu_dist[gpu] = gpu_dist.get(gpu, 0) + 1
+
+            # Use ram_bucket if available, otherwise derive from ram_total_gb
+            ram = hw.get("ram_bucket", "")
+            if not ram:
+                ram_gb = hw.get("ram_total_gb", 0)
+                if isinstance(ram_gb, (int, float)) and ram_gb > 0:
+                    if ram_gb < 12:
+                        ram = "8gb"
+                    elif ram_gb < 24:
+                        ram = "16gb"
+                    elif ram_gb < 48:
+                        ram = "32gb"
+                    elif ram_gb < 96:
+                        ram = "64gb"
+                    else:
+                        ram = "128gb+"
+                else:
+                    ram = "unknown"
+            ram_dist[ram] = ram_dist.get(ram, 0) + 1
+
+            osp = hw.get("os_platform", "unknown")
+            os_dist[osp] = os_dist.get(osp, 0) + 1
+
+            quant = mc.get("quantization", "unknown")
+            quant_dist[quant] = quant_dist.get(quant, 0) + 1
+
+        def _to_pct(dist: dict[str, int]) -> dict[str, float]:
+            return {k: round(v / total * 100, 1) for k, v in
+                    sorted(dist.items(), key=lambda x: x[1], reverse=True)}
+
+        return {
+            "total_submissions": total,
+            "tier_distribution": _to_pct(tier_dist),
+            "gpu_distribution": _to_pct(gpu_dist),
+            "ram_distribution": _to_pct(ram_dist),
+            "os_distribution": _to_pct(os_dist),
+            "quantization_distribution": _to_pct(quant_dist),
+        }
+    except Exception as e:
+        logger.warning(f"Failed to get survey stats: {e}")
+        return {"total_submissions": 0}
+
+
 def get_model_detail(model_name: str) -> Optional[dict]:
     """Get detailed stats for a single model with per-hardware breakdown."""
     if not is_available():

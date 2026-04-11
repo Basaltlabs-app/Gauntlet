@@ -37,11 +37,15 @@ def _t_critical(df: int, confidence: float = 0.95) -> float:
         alpha = 1 - confidence
         return scipy_stats.t.ppf(1 - alpha / 2, df)
 
-    # Fallback: lookup table with interpolation
+    # Fallback: lookup table only supports 95% CI
     if confidence != 0.95:
-        # Only 95% CI supported in pure-Python mode
-        # Approximate by scaling the 95% value
-        pass  # Use 95% as approximation
+        import warnings
+        warnings.warn(
+            f"Pure-Python CI only supports 95% confidence; using 95% instead of {confidence:.0%}. "
+            "Install scipy for arbitrary confidence levels: pip install gauntlet-cli[stats]",
+            stacklevel=3,
+        )
+        confidence = 0.95  # noqa: F841 — corrects value for caller awareness
 
     if df in _T_TABLE_95:
         return _T_TABLE_95[df]
@@ -133,6 +137,8 @@ def compute_statistics(
     std_dev = math.sqrt(variance)
 
     # Confidence interval
+    # In pure-Python mode, only 95% CI is supported (_t_critical warns and uses 95%)
+    effective_confidence = confidence if HAS_SCIPY else 0.95
     se = std_dev / math.sqrt(n)
     t_crit = _t_critical(n - 1, confidence)
     margin = t_crit * se
@@ -155,7 +161,7 @@ def compute_statistics(
         std_dev=round(std_dev, 2),
         ci_lower=round(ci_lower, 2),
         ci_upper=round(ci_upper, 2),
-        confidence_level=confidence,
+        confidence_level=effective_confidence,
         sample_size=n,
         min_score=round(min(scores), 2),
         max_score=round(max(scores), 2),
