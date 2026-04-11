@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/gauntlet-v1.4.0-b08d6e?style=for-the-badge" alt="version" />
+  <img src="https://img.shields.io/badge/gauntlet-v1.4.2-b08d6e?style=for-the-badge" alt="version" />
 </p>
 
 <h1 align="center">Gauntlet</h1>
@@ -87,7 +87,7 @@ gauntlet dashboard
 ```
 
 Features:
-- **Model Comparison**: select local and cloud models, send prompts, compare outputs side-by-side
+- **Unified Test Tab**: one interface for all testing modes. Compare with custom prompts, run Quick Benchmark (~5 min), or Full Benchmark (~30 min). All modes use the same severity-weighted scoring pipeline and contribute to the community dataset.
 - **Live Benchmark Progress**: animated test trail showing each probe as it runs, with pass/fail in real-time
 - **Benchmark History**: persistent results survive page refresh, compare runs over time
 - **Speed Analysis**: tokens/sec, time-to-first-token, total generation time
