@@ -880,7 +880,7 @@ def get_certification_data(model_name: str) -> Optional[dict]:
 
     try:
         params: dict = {
-            "select": "model_name,overall_score,hardware_tier,quick,category_scores",
+            "select": "model_name,overall_score,hardware,runtime,category_scores",
             "order": "timestamp.desc",
             "limit": "1000",
             "model_name": f"eq.{model_name}",
@@ -898,8 +898,20 @@ def get_certification_data(model_name: str) -> Optional[dict]:
         if not rows:
             return None
 
-        # Only count full-suite runs (not quick)
+        # Compute hardware_tier dynamically from stored JSONB
+        from gauntlet.core.hardware_tiers import classify_from_dicts
+        for row in rows:
+            if not row.get("hardware_tier"):
+                try:
+                    tier_obj = classify_from_dicts(row.get("hardware", {}), row.get("runtime"))
+                    row["hardware_tier"] = tier_obj.tier_name
+                except Exception:
+                    row["hardware_tier"] = "EDGE"
+
+        # Count all rows as full-suite (quick column may not exist in older data)
         full_rows = [r for r in rows if not r.get("quick", False)]
+        if not full_rows:
+            full_rows = rows  # Fall back to all rows if none pass the filter
         if not full_rows:
             return {
                 "total_submissions": 0,

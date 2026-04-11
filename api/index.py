@@ -715,10 +715,9 @@ async def predict_handler(request: Request) -> Response:
             _table_url(),
             headers={**_headers(), "Prefer": "return=representation"},
             params={
-                "select": "model_name,hardware_tier,overall_score",
+                "select": "model_name,overall_score,hardware,runtime",
                 "order": "timestamp.desc",
                 "limit": "2000",
-                "hardware_tier": "neq.",
             },
             timeout=5,
         )
@@ -729,6 +728,16 @@ async def predict_handler(request: Request) -> Response:
             {"error": f"Failed to fetch history: {str(e)}"},
             status_code=503, headers=CORS_HEADERS,
         )
+
+    # Compute hardware_tier dynamically for rows that don't have it stored
+    from gauntlet.core.hardware_tiers import classify_from_dicts
+    for row in rows:
+        if not row.get("hardware_tier"):
+            try:
+                tier_obj = classify_from_dicts(row.get("hardware", {}), row.get("runtime"))
+                row["hardware_tier"] = tier_obj.tier_name
+            except Exception:
+                row["hardware_tier"] = "EDGE"
 
     matrix = build_score_matrix_from_history(rows)
     predictor = PerformancePredictor(matrix)
@@ -787,7 +796,7 @@ async def recommend_handler(request: Request) -> Response:
             {"error": "Storage not configured"}, status_code=503, headers=CORS_HEADERS,
         )
 
-    # Fetch history rows with hardware_tier data
+    # Fetch history rows
     import httpx
     from gauntlet.mcp.history_store import _table_url, _headers
     try:
@@ -795,10 +804,9 @@ async def recommend_handler(request: Request) -> Response:
             _table_url(),
             headers={**_headers(), "Prefer": "return=representation"},
             params={
-                "select": "model_name,hardware_tier,overall_score",
+                "select": "model_name,overall_score,hardware,runtime",
                 "order": "timestamp.desc",
                 "limit": "2000",
-                "hardware_tier": "neq.",
             },
             timeout=5,
         )
@@ -809,6 +817,16 @@ async def recommend_handler(request: Request) -> Response:
             {"error": f"Failed to fetch history: {str(e)}"},
             status_code=503, headers=CORS_HEADERS,
         )
+
+    # Compute hardware_tier dynamically
+    from gauntlet.core.hardware_tiers import classify_from_dicts
+    for row in rows:
+        if not row.get("hardware_tier"):
+            try:
+                tier_obj = classify_from_dicts(row.get("hardware", {}), row.get("runtime"))
+                row["hardware_tier"] = tier_obj.tier_name
+            except Exception:
+                row["hardware_tier"] = "EDGE"
 
     matrix = build_score_matrix_from_history(rows)
     predictor = PerformancePredictor(matrix)
