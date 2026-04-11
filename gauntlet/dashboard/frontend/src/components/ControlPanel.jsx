@@ -159,26 +159,16 @@ export default function ControlPanel({ onRunStarted, onModelsSelected, sendMessa
     : 0
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
 
       {/* ---- HEADER ---- */}
-      <header className="space-y-3">
-        <motion.h1
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="text-4xl md:text-5xl font-display font-bold tracking-tighter gradient-text-hero"
-        >
+      <header className="space-y-2">
+        <h1 className="text-2xl md:text-3xl font-display font-bold tracking-tighter gradient-text-hero">
           Test Models
-        </motion.h1>
-        <motion.p
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.06 }}
-          className="text-[var(--text-dim)] max-w-lg"
-        >
-          Select models and choose a test mode. Every test contributes to the community dataset.
-        </motion.p>
+        </h1>
+        <p className="text-sm text-[var(--text-dim)] max-w-lg">
+          Select models, choose a test mode. Every result contributes to the community dataset.
+        </p>
 
         {/* System info */}
         {systemInfo && (

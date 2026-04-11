@@ -181,19 +181,13 @@ export default function App() {
 
             {activeTab === 'test' && (
               idle && !benchmarkState?.status ? (
-                <motion.div
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.1 }}
-                >
-                  <ControlPanel
-                    onRunStarted={reconnect}
-                    onModelsSelected={setSelectedModels}
-                    sendMessage={sendMessage}
-                    benchmarkState={benchmarkState}
-                    resetBenchmark={resetBenchmark}
-                  />
-                </motion.div>
+                <ControlPanel
+                  onRunStarted={reconnect}
+                  onModelsSelected={setSelectedModels}
+                  sendMessage={sendMessage}
+                  benchmarkState={benchmarkState}
+                  resetBenchmark={resetBenchmark}
+                />
               ) : benchmarkState?.status ? (
                 <BenchmarkPanel
                   selectedModels={selectedModels}
