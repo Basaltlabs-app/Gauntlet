@@ -50,7 +50,7 @@ Gauntlet is a community-driven behavioral research platform. Every user who runs
 
 **How it scores**: fully deterministic (regex, pattern matching, AST parsing). No LLM-as-judge. 18 dynamic probe factories randomize values each run to prevent memorization.
 
-**What makes it different**: Think Steam's Hardware Survey, but for AI. Not a tool — a platform. Results from CLI, TUI, and dashboard feed a community dataset with hardware metadata. Every submission is classified into a hardware tier (Edge, Consumer Low/Mid/High, Cloud), scored with confidence intervals, and used to predict how models perform on hardware they haven't been tested on yet.
+**What makes it different**: Gauntlet is not a tool. It is a platform. Results from CLI, TUI, and dashboard feed a community dataset with hardware metadata. Every submission is classified into a hardware tier (Edge, Consumer Low/Mid/High, Cloud), scored with confidence intervals, and used to predict how models perform on hardware configurations they have not been tested on.
 
 ```bash
 pip install gauntlet-cli
@@ -93,7 +93,7 @@ Features:
 - **Speed Analysis**: tokens/sec, time-to-first-token, total generation time
 - **Quality Radar**: radar chart visualization of quality dimensions
 - **Trust Rankings**: persistent leaderboard across all comparisons
-- **Community Intelligence**: hardware survey, tier-stratified rankings, quantization degradation curves, and performance prediction — all powered by community data
+- **Community Intelligence**: hardware survey, tier-stratified rankings, quantization degradation curves, and performance prediction, all derived from community submissions
 
 The dashboard runs locally. Benchmark scores (model name, grade, category scores) are shared with the [public leaderboard](https://basaltlabs.app/gauntlet/leaderboard) to build community rankings. No prompts, outputs, or personal data are transmitted. See [Data & Privacy](#data-and-privacy) for details.
 
@@ -121,7 +121,7 @@ See how a model ranks *on hardware like yours*, not averaged across everything.
 
 **Performance Prediction**: Enter any model and hardware tier to get a predicted score based on collaborative filtering across community data. Shows confidence level, prediction basis (direct measurement vs. interpolation), and similar models used.
 
-**Certification**: Models that meet quality thresholds across enough community submissions earn certification badges (Gold, Silver, Bronze) — similar to how games earn Steam Deck verification badges.
+**Certification**: Models that meet quality thresholds across sufficient community submissions earn certification badges (Gold, Silver, Bronze), providing standardized trust signals for model selection decisions.
 
 **Elo Rankings**: Win/loss/draw records from head-to-head `gauntlet compare` runs. Elo ratings update in real-time across all users.
 
@@ -143,7 +143,7 @@ Gauntlet can. Every test submission includes anonymous hardware metadata:
 | OS | macOS, Linux, Windows |
 | Provider | Ollama, OpenAI, Anthropic, Google |
 
-Filter the leaderboard by any combination. See how models compare on hardware like yours, not on a lab machine you will never own.
+Filter the leaderboard by any combination to see how models compare on comparable hardware configurations.
 
 ### Contributing
 
@@ -331,7 +331,7 @@ This gradient serves as a behavioral fingerprint: models that cave at level 3 (a
 
 Every benchmark result includes a provenance chain that ties the score to the exact benchmark configuration:
 
-- **Module versioning**: Each of the 17 modules has a `content_hash` — a SHA-256 of its canonical probe definitions. The version string is `"{declared_version}.{hash[:8]}"` (e.g., `0.1.0.a3f2bc91`). If probes change, the hash changes automatically.
+- **Module versioning**: Each of the 17 modules has a `content_hash`, a SHA-256 of its canonical probe definitions. The version string follows the format `"{declared_version}.{hash[:8]}"` (e.g., `0.1.0.a3f2bc91`). If probes change, the hash changes automatically.
 - **Benchmark fingerprint**: A SHA-256 of the sorted module version dict. Two runs with identical fingerprints tested the exact same probes.
 - **Result attestation**: Every community submission includes `gauntlet_version`, `benchmark_fingerprint`, `module_versions`, `hardware_tier`, and a UTC timestamp.
 - **Seeded randomization**: Dynamic probe factories accept a `--seed` parameter. Same seed, same module versions, same hardware = identical probes.
@@ -509,7 +509,7 @@ Gauntlet transmits **benchmark scores and anonymous hardware metadata** to the c
 
 **All scoring executes locally.** Probes, verification, and grading run on your machine. Only final numeric scores and the hardware class metadata above are transmitted.
 
-**Why hardware metadata?** It enables community filtering. Without it, results from a 128GB cloud GPU and an 8GB laptop get averaged together, which helps nobody. With it, you can filter for "Apple Silicon, Q4, 16GB" and see results relevant to your setup.
+**Why hardware metadata?** It enables community filtering. Without it, results from a 128GB cloud GPU and an 8GB laptop are averaged together, producing metrics representative of neither configuration. With hardware metadata, users can filter for "Apple Silicon, Q4, 16GB" and see results relevant to their setup.
 
 **MCP sessions** use temporary server-side state, automatically deleted on completion or after 1 hour (pg_cron). MCP results are stored separately from community hardware results.
 
