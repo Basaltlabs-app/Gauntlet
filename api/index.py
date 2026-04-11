@@ -2,7 +2,7 @@
 
 Exposes:
   /mcp                      - MCP streamable-http transport
-  /api/leaderboard          - Public leaderboard JSON (Elo ratings)
+  /api/leaderboard          - Public leaderboard JSON (comparative ratings)
   /api/leaderboard/history  - Test history + aggregated stats for graphs
   /api/leaderboard/tier     - Hardware-stratified leaderboard per tier
   /api/leaderboard/tiers    - Aggregate overview across all hardware tiers

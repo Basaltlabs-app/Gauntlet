@@ -312,7 +312,7 @@ def gauntlet_leaderboard(tier: str = "") -> str:
         tier: Optional hardware tier filter. One of: CLOUD, CONSUMER_HIGH,
               CONSUMER_MID, CONSUMER_LOW, EDGE. When set, shows rankings
               only from that hardware tier with confidence intervals.
-              Leave empty for the global Elo leaderboard.
+              Leave empty for the global comparative rating leaderboard.
     """
     VALID_TIERS = {"CLOUD", "CONSUMER_HIGH", "CONSUMER_MID", "CONSUMER_LOW", "EDGE"}
     tier = tier.strip().upper()
@@ -352,7 +352,7 @@ def gauntlet_leaderboard(tier: str = "") -> str:
         lines.append("=" * 60)
         return "\n".join(lines)
 
-    # ── Global Elo leaderboard (original behavior) ─────────────────────
+    # ── Global comparative leaderboard (original behavior) ─────────────
     models = []
     try:
         from gauntlet.mcp.leaderboard_store import get_leaderboard, is_available

@@ -123,7 +123,7 @@ See how a model ranks *on hardware like yours*, not averaged across everything.
 
 **Certification**: Models that meet quality thresholds across sufficient community submissions earn certification badges (Gold, Silver, Bronze), providing standardized trust signals for model selection decisions.
 
-**Elo Rankings**: Win/loss/draw records from head-to-head `gauntlet compare` runs. Elo ratings update in real-time across all users.
+**Comparative Rating Index (CRI)**: Win/loss/draw records from head-to-head `gauntlet compare` runs. Comparative ratings update in real-time across all users.
 
 **MCP Self-Tests**: Results from AI models testing themselves via the MCP server are stored separately. MCP runs on cloud infrastructure with self-reported model names, so the data lacks the hardware fingerprint that community CLI runs provide.
 
@@ -155,7 +155,7 @@ Public read-only endpoints at `https://gauntlet.basaltlabs.app` for building too
 
 | Endpoint | Description |
 |---|---|
-| `GET /api/leaderboard` | Elo ratings from head-to-head comparisons |
+| `GET /api/leaderboard` | Comparative ratings from head-to-head comparisons |
 | `GET /api/leaderboard/history` | Aggregated test stats with sparkline data |
 | `GET /api/leaderboard/tier?tier=CONSUMER_MID` | Rankings within a hardware tier, with confidence intervals |
 | `GET /api/leaderboard/tiers` | Hardware tier distribution across all submissions |

@@ -1,6 +1,6 @@
 """Supabase-backed leaderboard persistence for the public API.
 
-Stores Elo ratings in Supabase so they persist across Vercel serverless
+Stores comparative ratings in Supabase so they persist across Vercel serverless
 invocations and are accessible via the REST API for the public leaderboard.
 
 Table schema (create in Supabase SQL editor):

@@ -25,12 +25,12 @@ export default function Leaderboard({ data, result }) {
         <h1 className="text-4xl md:text-5xl font-display font-bold tracking-tighter gradient-text-hero mb-2">
           Local Rankings
         </h1>
-        <p className="text-[var(--text-muted)] uppercase tracking-[0.15em] text-sm font-display font-bold">Elo ratings from head-to-head comparisons on this machine (K=32, base 1500)</p>
+        <p className="text-[var(--text-muted)] uppercase tracking-[0.15em] text-sm font-display font-bold">Comparative Rating Index from head-to-head evaluations</p>
       </header>
       <div className="glass rounded-xl p-16 text-center flex flex-col items-center justify-center min-h-[400px]">
         <ListOrdered size={36} className="text-[var(--text-muted)] mb-4" />
         <p className="text-sm text-[var(--text-dim)]">No ranking data yet</p>
-        <p className="text-[10px] text-[var(--text-muted)] mt-1">Use the Compare tab to run two models on the same prompt. Rankings are built from Elo ratings after each head-to-head comparison.</p>
+        <p className="text-[10px] text-[var(--text-muted)] mt-1">Use the Compare tab to run two models on the same prompt. Rankings are built from pairwise comparative ratings after each evaluation.</p>
       </div>
     </div>
   )
@@ -45,7 +45,7 @@ export default function Leaderboard({ data, result }) {
         <h1 className="text-4xl md:text-5xl font-display font-bold tracking-tighter gradient-text-hero mb-2">
           Local Rankings
         </h1>
-        <p className="text-[var(--text-muted)] uppercase tracking-[0.15em] text-sm font-display font-bold">Elo ratings from head-to-head comparisons on this machine (K=32, base 1500)</p>
+        <p className="text-[var(--text-muted)] uppercase tracking-[0.15em] text-sm font-display font-bold">Comparative Rating Index from head-to-head evaluations</p>
       </header>
 
       {/* Stats row */}
