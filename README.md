@@ -151,7 +151,7 @@ Contributing is automatic. Every `gauntlet run` or `gauntlet compare` adds your 
 
 ### API
 
-Read-only, CORS-enabled endpoints at `https://gauntlet.basaltlabs.app` for building your own tools on top of the community data:
+Public read-only endpoints at `https://gauntlet.basaltlabs.app` for building tools on top of the community data. GET endpoints return CORS headers (`Access-Control-Allow-Origin: *`) for browser consumption. The write endpoint (POST /api/submit) restricts CORS to first-party origins.
 
 | Endpoint | Description |
 |---|---|

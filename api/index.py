@@ -73,12 +73,23 @@ _mcp_app = mcp.streamable_http_app()
 # REST API routes
 # ---------------------------------------------------------------------------
 
-CORS_HEADERS = {
+# Read-only endpoints: open to all origins (public data)
+CORS_HEADERS_READ = {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-Gauntlet-Signature",
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
     "Cache-Control": "public, max-age=30, s-maxage=60",
 }
+
+# Write endpoints: restrict to CLI user-agent (not browser-exploitable)
+CORS_HEADERS_WRITE = {
+    "Access-Control-Allow-Origin": "https://basaltlabs.app",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-Gauntlet-Signature",
+}
+
+# Backward compat alias — existing code references this
+CORS_HEADERS = CORS_HEADERS_READ
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +231,9 @@ async def submit_handler(request: Request) -> Response:
     Internal API used by the gauntlet CLI. Not documented publicly.
     12-point validation prevents fake, duplicate, and abusive submissions.
     """
+    # Write endpoint uses restricted CORS (basaltlabs.app only, not *)
+    CORS_HEADERS = CORS_HEADERS_WRITE  # noqa: F841 — intentional shadow
+
     # ── 1. Rate limiting (per IP) ────────────────────────────────────────
     client_ip = (
         request.headers.get("x-forwarded-for", "").split(",")[0].strip()
