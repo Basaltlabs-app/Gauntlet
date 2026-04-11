@@ -8,14 +8,33 @@ import {
 import { getModelColor, staggerContainer, staggerItem } from '../lib/animations'
 
 const CATEGORY_META = {
-  instruction_following: { icon: ClipboardCheck, label: 'Instructions', color: '#5da4a8' },
-  code_generation:       { icon: Code,           label: 'Coding',       color: '#a87c94' },
-  factual_accuracy:      { icon: CheckCircle,    label: 'Accuracy',     color: '#6ea882' },
-  reasoning:             { icon: Target,         label: 'Reasoning',    color: '#c4a05a' },
-  consistency:           { icon: Repeat,         label: 'Consistency',  color: '#7d93ab' },
-  pressure_resistance:   { icon: Shield,         label: 'Pressure',     color: '#c27065' },
-  speed:                 { icon: Timer,          label: 'Speed',        color: '#b08d6e' },
-  context_recall:        { icon: Search,         label: 'Recall',       color: '#9b8e78' },
+  // Module names (uppercase — from module_runner pipeline)
+  AMBIGUITY_HONESTY:        { icon: Eye,            label: 'Honesty',       color: '#a87c94' },
+  SYCOPHANCY_TRAP:          { icon: Shield,         label: 'Pressure',      color: '#c27065' },
+  SYCOPHANCY_GRADIENT:      { icon: Shield,         label: 'Gradient',      color: '#c27065' },
+  INSTRUCTION_ADHERENCE:    { icon: ClipboardCheck, label: 'Instructions',  color: '#5da4a8' },
+  INSTRUCTION_DECAY:        { icon: ClipboardCheck, label: 'Decay',         color: '#5da4a8' },
+  CONSISTENCY_DRIFT:        { icon: Repeat,         label: 'Consistency',   color: '#7d93ab' },
+  LOGICAL_CONSISTENCY:      { icon: Target,         label: 'Logic',         color: '#7d93ab' },
+  SAFETY_BOUNDARY:          { icon: Shield,         label: 'Safety',        color: '#6ea882' },
+  HALLUCINATION_PROBE:      { icon: Brain,          label: 'Hallucination', color: '#c87850' },
+  CONTEXT_FIDELITY:         { icon: Search,         label: 'Context',       color: '#9b8e78' },
+  REFUSAL_CALIBRATION:      { icon: Shield,         label: 'Refusal',       color: '#6ea882' },
+  CONTAMINATION_CHECK:      { icon: AlertTriangle,  label: 'Contamination', color: '#c4a05a' },
+  TEMPORAL_COHERENCE:       { icon: Clock,          label: 'Temporal',      color: '#b08d6e' },
+  CONFIDENCE_CALIBRATION:   { icon: Target,         label: 'Confidence',    color: '#c87850' },
+  ANCHORING_BIAS:           { icon: Brain,          label: 'Anchoring',     color: '#c4a05a' },
+  PROMPT_INJECTION:         { icon: AlertTriangle,  label: 'Injection',     color: '#6ea882' },
+  FRAMING_EFFECT:           { icon: Repeat,         label: 'Framing',       color: '#c4a05a' },
+  // Legacy lowercase categories (from old benchmarks.py pipeline)
+  instruction_following:    { icon: ClipboardCheck, label: 'Instructions',  color: '#5da4a8' },
+  code_generation:          { icon: Code,           label: 'Coding',        color: '#a87c94' },
+  factual_accuracy:         { icon: CheckCircle,    label: 'Accuracy',      color: '#6ea882' },
+  reasoning:                { icon: Target,         label: 'Reasoning',     color: '#c4a05a' },
+  consistency:              { icon: Repeat,         label: 'Consistency',   color: '#7d93ab' },
+  pressure_resistance:      { icon: Shield,         label: 'Pressure',      color: '#c27065' },
+  speed:                    { icon: Timer,          label: 'Speed',         color: '#b08d6e' },
+  context_recall:           { icon: Search,         label: 'Recall',        color: '#9b8e78' },
 }
 
 function scoreColor(score) {
