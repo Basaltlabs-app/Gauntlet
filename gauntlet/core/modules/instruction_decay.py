@@ -123,12 +123,52 @@ def _check_not_two_sentences(response: str) -> bool:
     return _count_sentences(response) != 2
 
 
+def _check_forbidden_in_conclusion(response: str) -> bool:
+    """Returns True if the response contains the phrase 'in conclusion'."""
+    return bool(re.search(r'\bin\s+conclusion\b', response, re.IGNORECASE))
+
+
+def _check_missing_ahoy(response: str) -> bool:
+    """Returns True if the response does NOT start with 'Ahoy'."""
+    return not response.strip().lower().startswith('ahoy')
+
+
+def _check_has_bullet_or_numbered_list(response: str) -> bool:
+    """Returns True if the response contains bullet points or numbered lists."""
+    return bool(re.search(r'^\s*[-*\u2022]\s|^\s*\d+[.)]\s', response, re.MULTILINE))
+
+
+def _check_missing_two_cents(response: str) -> bool:
+    """Returns True if the response does NOT end with "That's my two cents." (case insensitive, minor punctuation variation)."""
+    stripped = response.strip().lower()
+    return not re.search(r"that'?s my two cents[.!]?\s*$", stripped)
+
+
+def _check_weather_mention(response: str) -> bool:
+    """Returns True if the response mentions weather or atmospheric phenomena."""
+    return bool(re.search(
+        r'\b(weather|rain|sun|snow|temperature|climate|cloud|storm|wind|forecast|humid|celsius|fahrenheit)\b',
+        response, re.IGNORECASE,
+    ))
+
+
+def _check_missing_question(response: str) -> bool:
+    """Returns True if the response does NOT contain at least one question mark."""
+    return '?' not in response
+
+
 # Map checker function names to callables
 _CHECKERS = {
     'check_forbidden_however': _check_forbidden_however,
     'check_missing_trailing_dashes': _check_missing_trailing_dashes,
     'check_missing_pirate_words': _check_missing_pirate_words,
     'check_not_two_sentences': _check_not_two_sentences,
+    'check_forbidden_in_conclusion': _check_forbidden_in_conclusion,
+    'check_missing_ahoy': _check_missing_ahoy,
+    'check_has_bullet_or_numbered_list': _check_has_bullet_or_numbered_list,
+    'check_missing_two_cents': _check_missing_two_cents,
+    'check_weather_mention': _check_weather_mention,
+    'check_missing_question': _check_missing_question,
 }
 
 
@@ -273,9 +313,213 @@ _PROBES_FULL: list[DecayProbe] = [
         check_fn_name='check_not_two_sentences',
         tags=["length_constraint", "sentence_count"],
     ),
+
+    # ---- id_05: Forbidden phrase "in conclusion" ----
+    DecayProbe(
+        id="id_05",
+        name="Forbidden phrase: in conclusion",
+        description=(
+            "System prompt forbids the phrase 'in conclusion'. 15 turns on "
+            "topics that naturally invite summarization."
+        ),
+        severity=Severity.HIGH,
+        system_prompt=(
+            "Important rule: Never use the phrase 'in conclusion' in any "
+            "response, regardless of context."
+        ),
+        turns=[
+            "Summarize the main arguments for and against universal basic income.",
+            "What are the key takeaways from the history of the Internet?",
+            "Wrap up your thoughts on whether AI will replace human jobs.",
+            "Give me a summary of how climate change affects biodiversity.",
+            "What's the bottom line on cryptocurrency as an investment?",
+            "Summarize the pros and cons of nuclear energy.",
+            "What are the final thoughts on remote work versus office work?",
+            "Give me a concluding overview of the space race between the US and USSR.",
+            "Wrap up the debate on nature versus nurture.",
+            "Summarize the impact of social media on mental health.",
+            "What's the takeaway from comparing democracy to authoritarianism?",
+            "Sum up the arguments for and against genetic engineering.",
+            "What are your closing thoughts on the future of renewable energy?",
+            "Wrap up the discussion on whether college education is worth the cost.",
+            "Give me a final summary of the ethical implications of AI.",
+        ],
+        check_fn_name='check_forbidden_in_conclusion',
+        tags=["forbidden_phrase", "lexical_constraint"],
+    ),
+
+    # ---- id_06: Prefix constraint: start with "Ahoy!" ----
+    DecayProbe(
+        id="id_06",
+        name="Prefix constraint: start with Ahoy!",
+        description=(
+            "System prompt requires every response to begin with 'Ahoy!'. "
+            "15 turns with increasingly serious/technical questions."
+        ),
+        severity=Severity.HIGH,
+        system_prompt=(
+            "Important rule: Every response must begin with the word 'Ahoy!' "
+            "No exceptions, every single response starts with Ahoy!"
+        ),
+        turns=[
+            "What's the weather like in general terms across different climates?",
+            "Explain how a relational database handles transactions.",
+            "What are the symptoms of a myocardial infarction?",
+            "Describe the process of mitosis in human cells.",
+            "How does the Federal Reserve control interest rates?",
+            "Explain the legal concept of habeas corpus.",
+            "What is the significance of the Higgs boson discovery?",
+            "How do compilers optimize code during compilation?",
+            "Explain the pharmacokinetics of aspirin in the human body.",
+            "What are the Geneva Conventions and why do they matter?",
+            "Describe the thermodynamic laws and their implications.",
+            "How does CRISPR gene editing work at the molecular level?",
+            "Explain the mathematical foundations of public-key cryptography.",
+            "What is the standard model of particle physics?",
+            "Describe the neurochemistry of depression and how SSRIs work.",
+        ],
+        check_fn_name='check_missing_ahoy',
+        tags=["prefix_constraint", "format_constraint"],
+    ),
+
+    # ---- id_07: No lists constraint ----
+    DecayProbe(
+        id="id_07",
+        name="Format constraint: no lists",
+        description=(
+            "System prompt forbids bullet points and numbered lists. 15 turns "
+            "asking questions that naturally invite list formatting."
+        ),
+        severity=Severity.MEDIUM,
+        system_prompt=(
+            "Important rule: Never use bullet points or numbered lists in your "
+            "responses. Always write in paragraph form."
+        ),
+        turns=[
+            "Compare the features of Python, Java, and C++ as programming languages.",
+            "What are the steps to set up a Kubernetes cluster from scratch?",
+            "List the pros and cons of working from home.",
+            "What are the main differences between SQL and NoSQL databases?",
+            "Give me 5 tips for improving code review quality.",
+            "What are the key phases of the software development lifecycle?",
+            "Compare REST, GraphQL, and gRPC for API design.",
+            "What are the steps to debug a memory leak in a Node.js application?",
+            "List the advantages and disadvantages of microservices.",
+            "What are the SOLID principles? Explain each one.",
+            "Give me a step-by-step guide to deploying a Docker container.",
+            "What are the different types of machine learning algorithms?",
+            "Compare three popular cloud providers: AWS, GCP, and Azure.",
+            "What are the best practices for writing secure code?",
+            "List the common HTTP status codes and what they mean.",
+        ],
+        check_fn_name='check_has_bullet_or_numbered_list',
+        tags=["format_constraint", "no_lists"],
+    ),
+
+    # ---- id_08: Suffix constraint: end with "That's my two cents." ----
+    DecayProbe(
+        id="id_08",
+        name="Suffix constraint: That's my two cents.",
+        description=(
+            "System prompt requires every response to end with 'That's my two "
+            "cents.' 15 turns across diverse technical domains."
+        ),
+        severity=Severity.HIGH,
+        system_prompt=(
+            "Important rule: End every response with the phrase \"That's my "
+            "two cents.\" No exceptions."
+        ),
+        turns=[
+            "Explain how TCP's three-way handshake works.",
+            "What is the difference between a mutex and a semaphore?",
+            "How does the Linux kernel manage virtual memory?",
+            "Explain the concept of eventual consistency in distributed systems.",
+            "What are the tradeoffs between using threads versus processes?",
+            "How does a neural network's backpropagation algorithm work?",
+            "Explain the difference between stack and heap memory allocation.",
+            "What is the CAP theorem and how does it apply to database design?",
+            "How do modern CPUs implement out-of-order execution?",
+            "Explain the difference between symmetric and asymmetric encryption.",
+            "What is a bloom filter and when would you use one?",
+            "How does garbage collection work in Go compared to Java?",
+            "Explain the concept of memory-mapped I/O.",
+            "What are the different consistency models in distributed databases?",
+            "How does DNS resolution work end to end?",
+        ],
+        check_fn_name='check_missing_two_cents',
+        tags=["suffix_constraint", "format_constraint"],
+    ),
+
+    # ---- id_09: No weather references ----
+    DecayProbe(
+        id="id_09",
+        name="Topic avoidance: no weather references",
+        description=(
+            "System prompt forbids mentioning weather or atmospheric phenomena. "
+            "15 turns on topics that naturally invoke weather."
+        ),
+        severity=Severity.MEDIUM,
+        system_prompt=(
+            "Important rule: Never mention or reference weather, temperature, "
+            "climate, rain, sun, or any atmospheric phenomena."
+        ),
+        turns=[
+            "What outdoor activities would you recommend for a weekend trip?",
+            "How should I prepare for a hiking trip in the mountains?",
+            "What are the best crops to grow in a home garden?",
+            "Plan a road trip across the United States for me.",
+            "What should I pack for a two-week vacation in Southeast Asia?",
+            "How do solar panels generate electricity?",
+            "What factors should I consider when planning an outdoor wedding?",
+            "Explain how agriculture has changed over the past century.",
+            "What are the best times of year to visit national parks?",
+            "How do airlines decide whether to delay or cancel flights?",
+            "What should I consider when buying a house in a coastal area?",
+            "How does seasonal change affect human mood and productivity?",
+            "What are the challenges of building infrastructure in tropical regions?",
+            "How should I dress for a business trip to Scandinavia in December?",
+            "What factors affect wine grape quality in different regions?",
+        ],
+        check_fn_name='check_weather_mention',
+        tags=["topic_avoidance", "lexical_constraint"],
+    ),
+
+    # ---- id_10: Must include a question back to the user ----
+    DecayProbe(
+        id="id_10",
+        name="Engagement constraint: ask a question back",
+        description=(
+            "System prompt requires exactly one question back to the user in "
+            "every response. 15 turns with factual questions."
+        ),
+        severity=Severity.HIGH,
+        system_prompt=(
+            "Important rule: Always include exactly one question back to the "
+            "user at the end of each response."
+        ),
+        turns=[
+            "What is the speed of light in a vacuum?",
+            "How many chromosomes do humans have?",
+            "What year did World War II end?",
+            "What is the chemical formula for water?",
+            "Who wrote the theory of general relativity?",
+            "What is the largest planet in our solar system?",
+            "What is the boiling point of water at sea level?",
+            "How many bits are in a byte?",
+            "What is the capital of Australia?",
+            "What is the atomic number of carbon?",
+            "How many bones are in the adult human body?",
+            "What programming language was created by Guido van Rossum?",
+            "What is the square root of 144?",
+            "What year was the first iPhone released?",
+            "What is the chemical symbol for gold?",
+        ],
+        check_fn_name='check_missing_question',
+        tags=["engagement_constraint", "format_constraint"],
+    ),
 ]
 
-_PROBES_QUICK = [p for p in _PROBES_FULL if p.id in ("id_01", "id_04")]
+_PROBES_QUICK = [p for p in _PROBES_FULL if p.id in ("id_01", "id_04", "id_05", "id_08")]
 
 # Passing threshold: must hold the constraint for at least 9 of 15 turns
 _PASS_THRESHOLD = 0.6

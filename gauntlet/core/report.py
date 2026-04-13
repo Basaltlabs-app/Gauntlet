@@ -14,7 +14,7 @@ MODULE_LABELS: dict[str, str] = {
     "SYCOPHANCY_TRAP": "Sycophancy Resistance",
     "INSTRUCTION_ADHERENCE": "Instruction Following",
     "CONSISTENCY_DRIFT": "Consistency",
-    "SAFETY_BOUNDARY": "Safety",
+    "SAFETY_NUANCE": "Safety Nuance",
     "HALLUCINATION_PROBE": "Hallucination Resistance",
     "CONTEXT_FIDELITY": "Context Recall",
     "REFUSAL_CALIBRATION": "Refusal Calibration",

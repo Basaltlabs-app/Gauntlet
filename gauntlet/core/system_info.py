@@ -301,9 +301,15 @@ def _get_ollama_version() -> str:
 
 def _get_model_metadata(model_name: str, provider: str) -> dict:
     """Get model metadata from the provider (quantization, family, size)."""
-    if provider != "ollama":
-        return {}
+    if provider == "ollama":
+        return _get_ollama_metadata(model_name)
+    elif provider == "llamacpp":
+        return _get_llamacpp_metadata(model_name)
+    return {}
 
+
+def _get_ollama_metadata(model_name: str) -> dict:
+    """Get model metadata from Ollama /api/show."""
     try:
         import httpx
         resp = httpx.post(
@@ -328,6 +334,91 @@ def _get_model_metadata(model_name: str, provider: str) -> dict:
                 "format": details.get("format", "unknown"),
                 "families": details.get("families", []),
             }
+    except Exception:
+        pass
+    return {}
+
+
+def _get_llamacpp_metadata(model_name: str) -> dict:
+    """Get model metadata from llama.cpp server /props and /v1/models.
+
+    llama-server exposes:
+      GET /props -> { default_generation_settings: { n_ctx, model, ... }, ... }
+      GET /v1/models -> { data: [{ id, ... }] }
+
+    We extract what we can: context length, model file path (to infer
+    quantization from the filename), and model ID.
+    """
+    import re
+
+    try:
+        import httpx
+        from gauntlet.core.config import get_llamacpp_host
+
+        host = get_llamacpp_host()
+        meta: dict = {
+            "family": "unknown",
+            "parameter_size": "",
+            "quantization": "unknown",
+            "format": "gguf",
+            "families": [],
+        }
+
+        # Query /props for generation settings and model path
+        try:
+            resp = httpx.get(f"{host}/props", timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                gen = data.get("default_generation_settings", {})
+                model_path = gen.get("model", "")
+
+                # Extract info from GGUF filename
+                # e.g. "qwen3-8b-q4_K_M.gguf" -> quant=Q4_K_M, params=8B
+                if model_path:
+                    filename = model_path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+
+                    # Detect quantization from filename
+                    quant_match = re.search(
+                        r"[_.-](q\d[_a-zA-Z0-9]*|f16|f32|fp16|fp32|bf16)",
+                        filename, re.IGNORECASE,
+                    )
+                    if quant_match:
+                        meta["quantization"] = quant_match.group(1).upper()
+
+                    # Detect parameter size from filename
+                    param_match = re.search(
+                        r"(\d+(?:\.\d+)?)[_.-]?[bB]",
+                        filename,
+                    )
+                    if param_match:
+                        meta["parameter_size"] = f"{param_match.group(1)}B"
+
+                # Context length
+                n_ctx = gen.get("n_ctx", 0)
+                if n_ctx:
+                    meta["context_length"] = n_ctx
+        except Exception:
+            pass
+
+        # Query /v1/models for model ID
+        try:
+            resp = httpx.get(f"{host}/v1/models", timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                models = data.get("data", [])
+                if models:
+                    model_id = models[0].get("id", "")
+                    if model_id and meta["family"] == "unknown":
+                        # Try to infer family from model ID
+                        for fam in ["llama", "qwen", "gemma", "phi", "mistral",
+                                    "deepseek", "yi", "falcon", "mamba", "starcoder"]:
+                            if fam in model_id.lower():
+                                meta["family"] = fam
+                                break
+        except Exception:
+            pass
+
+        return meta
     except Exception:
         pass
     return {}

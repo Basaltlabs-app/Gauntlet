@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/gauntlet-v1.4.2-b08d6e?style=for-the-badge" alt="version" />
+  <img src="https://img.shields.io/badge/gauntlet-v1.4.3-b08d6e?style=for-the-badge" alt="version" />
 </p>
 
 <h1 align="center">Gauntlet</h1>
@@ -24,7 +24,7 @@
 <p align="center">
   <img src="https://img.shields.io/pypi/v/gauntlet-cli?color=b08d6e" alt="PyPI" />
   <img src="https://img.shields.io/github/license/Basaltlabs-app/Gauntlet" alt="License" />
-  <img src="https://img.shields.io/badge/probes-88-c4a05a" alt="88 Probes" />
+  <img src="https://img.shields.io/badge/probes-214-c4a05a" alt="214 Probes" />
   <img src="https://img.shields.io/badge/scoring-deterministic-c4a05a" alt="Deterministic" />
 </p>
 
@@ -236,25 +236,25 @@ Classification uses **deterministic keyword matching**: no LLM calls, instant, r
 
 ## Behavioral Taxonomy
 
-**24 behavioral categories. 88 probes. 18 dynamic factories. 14 domain competence tasks.** Each category contains parameterized probes with fully deterministic verification. The compare feature uses lightweight LLM evaluation for freeform quality assessment.
+**17 behavioral modules. 214 probes. 18 dynamic factories. 14 domain competence tasks.** Each category contains parameterized probes with fully deterministic verification. The compare feature uses lightweight LLM evaluation for freeform quality assessment.
 
 | Category | Probes | Dimension Measured | Verification Method |
 |---|---|---|---|
 | **Instruction Following** | 12 | Adherence to explicit formatting, length, and lexical constraints | Format regex, word/sentence counting, forbidden token detection |
 | **Code Generation** | 6 | Structural correctness and syntactic validity of generated code | AST parsing, output validation, edge case coverage |
 | **Factual Accuracy** | 3 | Correctness of verifiable factual claims | Ground truth comparison with randomized parameters |
-| **Reasoning** | 3 | Multi-step logical inference | Logic chain verification with randomized values |
-| **Consistency** | 8 | Answer stability across semantically equivalent phrasings | Cross-response keyword and pattern matching (3 phrasings per question) |
+| **Logical Consistency** | 18 | Formal logic, multi-step reasoning, Bayesian inference, fallacy detection | Transitivity, modus tollens, 5-premise chains, combinatorics, base-rate fallacy, contradiction detection, intermediate reasoning checks |
+| **Consistency** | 15 | Opinion, reasoning, and self-contradiction consistency | Semantic similarity + stance extraction across 3 phrasings; multi-turn contradiction detection |
 | **Pressure Resistance** | 10 | Resistance to social pressure on correct answers | Multi-turn protocol: correct answer, user pushback, cave detection |
-| **Safety Boundary** | 10 | Refusal of genuinely harmful requests | Refusal pattern detection across framing variants (academic, emotional, authority, roleplay) |
+| **Safety Nuance** | 18 | Calibrated safety: over-refusal, under-refusal, context-dependent harm | Dual-axis scoring: benign-should-help, needs-caveats, context pairs, genuinely harmful |
 | **Refusal Calibration** | 12 | Appropriate helpfulness on benign edge-case topics | Should-answer vs should-refuse classification on medical, legal, security topics |
 | **Injection Resistance** | 2 | Resistance to prompt injection payloads | Embedded instruction detection in documents and system prompts |
 | **Hallucination Detection** | 10 | Fabrication of nonexistent entities, citations, or statistics | Fake entity/citation detection, false statistic identification, misattribution detection |
 | **Ambiguity and Honesty** | 12 | Willingness to express uncertainty when appropriate | Uncertainty keyword/pattern matching, undecidable problem recognition |
-| **Context Fidelity** | 10 | Retrieval of specific details from long-context passages | Hidden value extraction, multi-fact recall, contradiction detection |
-| **Sycophancy Gradient** | 5 | Pressure threshold mapping across escalation levels | 5-level escalation protocol: gentle doubt, peer pressure, authority, hostility, ultimatum |
-| **Instruction Decay** | 4 | System prompt constraint retention over conversation distance | 15-turn conversations measuring word, format, role, and persona constraint violations |
-| **Temporal Coherence** | 3 | Fact retention across extended multi-turn conversations | Seed 5 facts, interleave 5/10/15 distractor turns, test indirect recall |
+| **Context Fidelity** | 15 | Retrieval from short to 10K+ word passages | Needle-in-haystack at 1K/5K/10K words, multi-document synthesis, position-varied retrieval, distractor resistance |
+| **Sycophancy Gradient** | 15 | Pressure threshold mapping across 15 domains | 5-level escalation: gentle doubt, peer pressure, authority, hostility, ultimatum across law, medicine, physics, cybersecurity, etc. |
+| **Instruction Decay** | 10 | System prompt constraint retention over 15-turn conversations | 10 constraint types: forbidden words/phrases, format suffixes, persona, length limits, tone, topic, list-avoidance, engagement |
+| **Temporal Coherence** | 8 | Fact retention across 3-25 turn conversations | Seed 5 facts, interleave 3/5/7/10/12/15/20/25 distractor turns, test indirect recall |
 | **Confidence Calibration** | 10 | Correlation between stated confidence and actual accuracy | Expected Calibration Error (ECE) across stratified difficulty levels |
 
 ### Anti-Contamination: Dynamic Probe Factories
@@ -375,9 +375,31 @@ Add to your MCP client configuration (Claude Code, Cursor, Windsurf, etc.):
 
 Then instruct the AI: **"Run the gauntlet on yourself"**
 
-Same 88 probes. Same deterministic scoring. Same dynamic factories. The model under evaluation is also the executor.
+Same 214 probes. Same deterministic scoring. Same dynamic factories. The model under evaluation is also the executor.
 
-**Note on MCP data quality**: MCP results are stored separately from community CLI results. Because MCP runs on cloud serverless infrastructure, there is no local hardware fingerprint, and the model name is self-reported by the AI (not verified). For research-grade community data, use `gauntlet run` from the CLI, which detects the actual model, quantization, and hardware automatically.
+### Token Usage and Cost
+
+MCP runs consume tokens on every probe round-trip. The AI reads each probe, generates a response, and the result is scored. **This is not free for pay-per-token models.**
+
+| Suite | Probes | Est. Input Tokens | Est. Output Tokens | Total Tokens |
+|---|---|---|---|---|
+| **Quick** | 78 | ~5,000 | ~15,600 | **~60K** (with MCP overhead) |
+| **Full** | 167 | ~10,000 | ~33,400 | **~127K** (with MCP overhead) |
+
+Estimated cost per run (input + output, at published API pricing):
+
+| Model | Quick Run | Full Run |
+|---|---|---|
+| GPT-4.1 | ~$0.13 | ~$0.29 |
+| GPT-4o | ~$0.17 | ~$0.36 |
+| Claude Sonnet 4 | ~$0.25 | ~$0.53 |
+| Claude Opus 4 | ~$1.25 | ~$2.66 |
+
+**Recommendation**: Use **Quick mode** (`gauntlet_run(quick=true)`) for routine testing. Full mode is best reserved for thorough evaluation or when publishing results. Users on metered plans (especially Opus-class models) should be aware of the cost before running full suites.
+
+### MCP Data Quality
+
+MCP results are stored separately from community CLI results. Because MCP runs on cloud serverless infrastructure, there is no local hardware fingerprint, and the model name is self-reported by the AI (not verified). For research-grade community data, use `gauntlet run` from the CLI, which detects the actual model, quantization, and hardware automatically.
 
 ---
 
@@ -439,11 +461,33 @@ pip install gauntlet-cli[all-providers]  # All cloud providers
 | Provider | Configuration | Cost |
 |---|---|---|
 | [Ollama](https://ollama.com) (local) | `ollama pull qwen3.5:4b` | Free |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) (local) | `llama-server -m model.gguf` | Free |
 | OpenAI API | `export OPENAI_API_KEY=sk-...` | Pay-per-use |
 | Anthropic API | `export ANTHROPIC_API_KEY=sk-ant-...` | Pay-per-use |
 | Google AI API | `export GOOGLE_API_KEY=AI...` | Pay-per-use |
 
-Ollama runs models locally with zero external dependency. Cloud providers are optional and can be combined with local models.
+Ollama and llama.cpp run models locally with zero external dependency. Cloud providers are optional and can be combined with local models.
+
+### llama.cpp
+
+Gauntlet supports [llama.cpp](https://github.com/ggml-org/llama.cpp) via its OpenAI-compatible server API. Start `llama-server` with any GGUF model, then use the `llamacpp:` prefix:
+
+```bash
+# Start llama-server (default port 8080)
+llama-server -m path/to/qwen3-8b-q4_K_M.gguf --port 8080
+
+# Run benchmark
+gauntlet run llamacpp:qwen3-8b-Q4_K_M
+
+# Compare with an Ollama model
+gauntlet compare llamacpp:qwen3-8b-Q4_K_M ollama:qwen3.5:4b "explain recursion"
+
+# Custom host/port
+export LLAMACPP_HOST=http://localhost:9090
+gauntlet run llamacpp:my-model
+```
+
+The model name after `llamacpp:` is used for labeling in results and the leaderboard (llama-server serves whatever GGUF was loaded at startup). Use descriptive names like `llamacpp:qwen3-8b-Q4_K_M` so leaderboard entries are identifiable. Gauntlet auto-detects quantization, parameter size, and model family from the GGUF filename via `/props`.
 
 ## CLI Reference
 
@@ -451,7 +495,7 @@ Ollama runs models locally with zero external dependency. Cloud providers are op
 # Launch the interactive TUI
 gauntlet
 
-# Run the full benchmark (88 probes)
+# Run the full benchmark (214 probes)
 gauntlet run --model ollama/qwen3.5:4b --profile assistant
 
 # Quick mode (~51 probes, reduced set per module)

@@ -2,8 +2,8 @@
 
 Tests whether the model follows injected instructions embedded inside
 user-provided data (documents, emails, code) rather than obeying the
-system prompt. This is distinct from SAFETY_BOUNDARY which tests direct
-jailbreak attempts.
+system prompt. This is distinct from SAFETY_NUANCE which tests direct
+harmful requests and nuanced safety judgment.
 
 Reference: Greshake et al. (2023), "Not what you've signed up for:
 Compromising Real-World LLM-Integrated Applications with Indirect

@@ -110,7 +110,7 @@ class TestGetCategoryCoverage:
         expected_present = {
             "INSTRUCTION_ADHERENCE",
             "LOGICAL_CONSISTENCY",
-            "SAFETY_BOUNDARY",
+            "SAFETY_NUANCE",
             "HALLUCINATION_PROBE",
             "SYCOPHANCY_TRAP",
             "AMBIGUITY_HONESTY",

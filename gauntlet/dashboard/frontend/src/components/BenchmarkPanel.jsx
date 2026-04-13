@@ -16,7 +16,7 @@ const CATEGORY_META = {
   INSTRUCTION_DECAY:        { icon: ClipboardCheck, label: 'Decay',         color: '#5da4a8' },
   CONSISTENCY_DRIFT:        { icon: Repeat,         label: 'Consistency',   color: '#7d93ab' },
   LOGICAL_CONSISTENCY:      { icon: Target,         label: 'Logic',         color: '#7d93ab' },
-  SAFETY_BOUNDARY:          { icon: Shield,         label: 'Safety',        color: '#6ea882' },
+  SAFETY_NUANCE:            { icon: Shield,         label: 'Safety',        color: '#6ea882' },
   HALLUCINATION_PROBE:      { icon: Brain,          label: 'Hallucination', color: '#c87850' },
   CONTEXT_FIDELITY:         { icon: Search,         label: 'Context',       color: '#9b8e78' },
   REFUSAL_CALIBRATION:      { icon: Shield,         label: 'Refusal',       color: '#6ea882' },
@@ -94,6 +94,19 @@ function TestStatusIcon({ status, passed }) {
 
 // ── Single test row in the progress trail ──────────────────────────
 
+function ElapsedTimer() {
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setElapsed(e => e + 1), 1000)
+    return () => clearInterval(t)
+  }, [])
+  return (
+    <span className="text-[10px] font-mono text-[var(--cs-gold)] w-12 text-right shrink-0 tabular-nums">
+      {elapsed}s
+    </span>
+  )
+}
+
 function TestRow({ test, index }) {
   const meta = CATEGORY_META[test.category] || { label: test.category, color: '#9a9590', icon: Gauge }
   const Icon = meta.icon
@@ -128,6 +141,9 @@ function TestRow({ test, index }) {
       >
         {meta.label}
       </span>
+
+      {/* Elapsed timer while running */}
+      {isActive && <ElapsedTimer />}
 
       {/* Duration */}
       {isDone && test.duration_s != null && (
@@ -210,8 +226,11 @@ export default function BenchmarkPanel({ selectedModels, sendMessage, benchmarkS
   // Load benchmark history + latest results on mount
   useEffect(() => {
     fetchHistory()
-    // Auto-load latest benchmark if no results are showing
-    if (!benchmarkState?.results && !loadedResults) {
+    // Auto-load latest benchmark ONLY if no run is active and no results are showing.
+    // Without this guard, starting a benchmark from ControlPanel triggers mount
+    // of BenchmarkPanel, which immediately fetches stale historical results and
+    // hides the live progress trail.
+    if (!benchmarkState?.results && !loadedResults && !benchmarkState?.status) {
       fetch('/api/benchmark/latest')
         .then(r => r.json())
         .then(data => {
@@ -289,7 +308,8 @@ export default function BenchmarkPanel({ selectedModels, sendMessage, benchmarkS
 
   // Results: prefer streamed, fall back to loaded from history
   const results = benchmarkState?.results || loadedResults || null
-  const hasResults = hasStreamedResults || loadedResults !== null
+  // Only count as "has results" if there are actual result entries to display
+  const hasResults = (hasStreamedResults && results && results.length > 0) || loadedResults !== null
   const bestIdx = results ? results.reduce((best, r, i) =>
     r.overall_score > (results[best]?.overall_score ?? -1) ? i : best, 0) : -1
 
@@ -300,7 +320,7 @@ export default function BenchmarkPanel({ selectedModels, sendMessage, benchmarkS
         <div>
           <h1 className="text-4xl md:text-5xl font-display font-bold tracking-tighter gradient-text-hero mb-2">Benchmark</h1>
           <p className="text-xs uppercase tracking-[0.15em] text-[var(--text-muted)] font-display font-bold">
-            {quick ? '8' : '17'} automated tests · programmatic verification · no LLM judge
+            17 behavioral modules · {quick ? 'reduced' : 'full'} probe set · programmatic verification
           </p>
         </div>
         <div className="flex gap-3 items-center">
@@ -472,8 +492,32 @@ export default function BenchmarkPanel({ selectedModels, sendMessage, benchmarkS
       )}
 
       {/* ── Live Progress Trail ── */}
-      {benchmarkState && !hasResults && (
+      {benchmarkState && (isRunning || isStopping || (isStopped && !hasResults)) && (
         <div className="space-y-6">
+          {/* Show loading state before any test events arrive */}
+          {Object.keys(benchmarkState.tests || {}).length === 0 && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="glass rounded-xl p-10 flex flex-col items-center justify-center gap-4"
+            >
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ repeat: Infinity, duration: 2, ease: 'linear' }}
+              >
+                <Loader2 size={28} className="text-[var(--cs-gold)]" />
+              </motion.div>
+              <div className="text-center space-y-2">
+                <p className="text-sm font-display font-semibold text-[var(--cs-text)]">
+                  Initializing benchmark...
+                </p>
+                <p className="text-xs text-[var(--text-muted)]">
+                  Loading model and preparing {benchmarkState.totalTests || ''} tests
+                </p>
+              </div>
+            </motion.div>
+          )}
+
           {Object.entries(benchmarkState.tests || {}).map(([model, tests], modelIdx) => {
             const modelCompleted = tests.filter(t => t.status === 'done').length
             const modelPassed = tests.filter(t => t.status === 'done' && t.passed).length
@@ -558,7 +602,7 @@ export default function BenchmarkPanel({ selectedModels, sendMessage, benchmarkS
       )}
 
       {/* ── Results (after completion or stop) ── */}
-      {hasResults && results && (
+      {hasResults && results && !isRunning && !isStopping && (
         <motion.div
           variants={staggerContainer}
           initial="hidden"

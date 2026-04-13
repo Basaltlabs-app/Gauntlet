@@ -16,6 +16,7 @@ Scoring: Deterministic keyword/pattern matching.
 
 from __future__ import annotations
 
+import random
 import re
 from gauntlet.core.probe_gen import ProbeGenerator
 from gauntlet.core.modules.base import (
@@ -75,6 +76,206 @@ The company ended 2024 with 12,500 employees worldwide, up from 10,200 at the st
 
 Looking Ahead:
 Based on our strong performance, with total 2024 revenue of $2.1 billion, we project 20% growth in 2025. Our focus will be on expanding the Asian Pacific division, which currently represents our smallest revenue contribution at $300 million."""
+
+
+# ---------------------------------------------------------------------------
+# Long passage generator for extended context probes
+# ---------------------------------------------------------------------------
+
+_NOVATECH_PARAGRAPHS = [
+    "NovaTech Solutions reported strong Q{q} results for fiscal year 20{y}. Revenue from the enterprise division reached ${rev}M, driven by expanded partnerships with Fortune 500 clients. The sales team, led by Regional Director {name}, closed {deals} new contracts during the quarter. Management attributed the growth to improved customer retention strategies and a more aggressive pricing model for multi-year agreements.",
+    "The infrastructure migration project entered its {phase} phase in {month} 20{y}. Lead architect {name} presented the updated timeline to the steering committee, estimating completion by Q{q} of the following year. The total allocated budget stands at ${rev}M, with ${spent}M already committed to vendor contracts. Server uptime during the transition period remained above 99.{uptime}%, exceeding the SLA target.",
+    "NovaTech's product development team shipped version {major}.{minor} of the DataSync platform in {month} 20{y}. The release included {features} new features and resolved {bugs} critical bugs identified during the beta program. Quality assurance manager {name} confirmed that all regression tests passed, and the deployment was executed with zero downtime across all production environments.",
+    "The quarterly client onboarding report showed {clients} new enterprise accounts activated during Q{q} 20{y}. Customer success lead {name} noted that average onboarding time decreased from {old_days} days to {new_days} days following the introduction of automated provisioning workflows. Client satisfaction scores averaged {score}/10 across all new accounts, up from {old_score}/10 in the previous quarter.",
+    "NovaTech's security team completed its annual penetration testing cycle in {month} 20{y}. Chief Information Security Officer {name} reported that {vulns} vulnerabilities were identified, of which {critical} were classified as critical. All critical findings were remediated within the {sla}-hour SLA window. The team also implemented a new threat detection system with an estimated ${rev}K annual operating cost.",
+    "Market analysis conducted by NovaTech's strategy division in Q{q} 20{y} identified {segments} emerging market segments with combined addressable revenue of ${rev}B. Senior analyst {name} recommended prioritizing the healthcare vertical, which showed {growth}% year-over-year growth in technology spending. The competitive landscape report noted {competitors} direct competitors in the enterprise middleware space.",
+    "The human resources department processed {hires} new hires during Q{q} 20{y}, bringing total headcount to {total}. VP of People Operations {name} announced the launch of a revised compensation framework, with median salary adjustments of {adjust}% across engineering roles. Employee engagement surveys returned a {engage}% satisfaction rating, a {delta}-point improvement over the prior period.",
+    "NovaTech's finance team released the consolidated P&L statement for Q{q} 20{y}. Gross margin improved to {margin}%, up from {old_margin}% in the same quarter last year. Controller {name} attributed the improvement to renegotiated cloud hosting agreements and reduced third-party licensing fees. Operating expenses totaled ${opex}M, in line with the board-approved annual budget of ${budget}M.",
+    "The research and development division allocated ${rd}M toward its next-generation analytics engine in Q{q} 20{y}. Principal engineer {name} demonstrated an early prototype capable of processing {tps}K transactions per second, a {improvement}x improvement over the current production system. Patent applications for {patents} novel algorithms were filed with the USPTO during the quarter.",
+    "NovaTech's partner ecosystem expanded to {partners} certified integrators by the end of Q{q} 20{y}. Channel director {name} signed strategic alliances with {new_partners} new technology vendors, including agreements for co-marketing initiatives valued at ${co_market}M. Partner-sourced revenue accounted for {partner_rev}% of total bookings, up from {old_partner_rev}% in the previous fiscal year.",
+    "The data governance committee met on {month} {day}, 20{y} to review compliance readiness for upcoming regulatory changes. Chief compliance officer {name} confirmed that {pct}% of customer data had been migrated to the new encrypted storage tier. Audit preparation for the SOC 2 Type II certification is {status}, with the external auditor scheduled for {audit_month} 20{y}.",
+    "NovaTech's customer support metrics for Q{q} 20{y} showed a median first-response time of {response_min} minutes, well within the {sla_min}-minute SLA. Support director {name} reported that ticket volume increased {ticket_pct}% quarter-over-quarter, primarily due to the DataSync {major}.{minor} release. Escalation rates remained stable at {esc}%, and CSAT scores held at {csat}%.",
+    "The corporate development team evaluated {acq} potential acquisition targets during Q{q} 20{y}. VP of Corporate Development {name} presented term sheets for {shortlist} companies to the executive committee, with combined enterprise values ranging from ${low_ev}M to ${high_ev}M. Due diligence on the leading candidate, a {specialty} startup, is expected to conclude by {month} 20{y}.",
+    "NovaTech's global operations expanded into the {region} market with the opening of a new regional office in {city} during Q{q} 20{y}. Country manager {name} onboarded an initial team of {staff} employees and secured {local_clients} pilot engagements with local enterprises. The office lease was signed for a {lease_years}-year term at an annual cost of ${lease_cost}K.",
+    "The internal tooling team delivered Project Beacon in {month} 20{y}, a unified developer portal consolidating CI/CD pipelines, monitoring dashboards, and documentation. Engineering manager {name} reported that developer onboarding time decreased by {onboard_pct}% and deployment frequency increased from {old_deploys} to {new_deploys} releases per sprint. The platform serves {devs} active developers across {teams} engineering teams.",
+]
+
+_NOVATECH_NAMES = [
+    "Sarah Mitchell", "David Chen", "Maria Gonzalez", "James Okafor",
+    "Priya Sharma", "Michael Torres", "Aiko Tanaka", "Robert Kim",
+    "Elena Volkov", "Samuel Adeyemi", "Laura Petrov", "Thomas Nakamura",
+    "Fatima Al-Hassan", "Richard Lindqvist", "Amara Okonkwo",
+]
+
+_MONTHS = ["January", "February", "March", "April", "May", "June",
+           "July", "August", "September", "October", "November", "December"]
+
+_REGIONS = ["Southeast Asian", "Central European", "Latin American", "Nordic", "Middle Eastern"]
+_CITIES = ["Singapore", "Prague", "Bogota", "Stockholm", "Dubai"]
+_PHASES = ["second", "third", "final", "integration", "validation"]
+_STATUSES = ["on track", "ahead of schedule", "progressing well", "nearing completion"]
+_SPECIALTIES = ["machine learning", "cybersecurity", "data integration", "cloud native", "edge computing"]
+
+
+def _generate_long_passage(
+    target_words: int,
+    needle: str,
+    needle_position: str = "middle",
+    distractors: list[str] | None = None,
+    seed: int | None = None,
+) -> str:
+    """Generate a long NovaTech passage with an embedded needle and optional distractors.
+
+    Args:
+        target_words: Approximate word count target.
+        needle: The string to embed as a needle.
+        needle_position: "beginning" (first 10%), "middle" (40-60%), or "end" (last 10%).
+        distractors: Optional list of distractor strings to place at other positions.
+        seed: Optional seed for reproducibility.
+    """
+    rng = random.Random(seed) if seed is not None else random.Random()
+
+    paragraphs: list[str] = []
+    word_count = 0
+
+    while word_count < target_words:
+        template = rng.choice(_NOVATECH_PARAGRAPHS)
+        name = rng.choice(_NOVATECH_NAMES)
+        month = rng.choice(_MONTHS)
+        region_idx = rng.randint(0, len(_REGIONS) - 1)
+
+        filled = template.format(
+            q=rng.randint(1, 4), y=rng.randint(24, 26),
+            rev=rng.randint(12, 95), spent=rng.randint(5, 40),
+            name=name, deals=rng.randint(8, 45),
+            phase=rng.choice(_PHASES), month=month,
+            uptime=rng.randint(90, 99),
+            major=rng.randint(3, 8), minor=rng.randint(0, 9),
+            features=rng.randint(6, 25), bugs=rng.randint(3, 18),
+            clients=rng.randint(5, 30), old_days=rng.randint(14, 30),
+            new_days=rng.randint(5, 12), score=rng.randint(7, 9),
+            old_score=rng.randint(6, 8),
+            vulns=rng.randint(12, 50), critical=rng.randint(2, 8),
+            sla=rng.randint(24, 72),
+            segments=rng.randint(3, 7), growth=rng.randint(12, 35),
+            competitors=rng.randint(4, 12),
+            hires=rng.randint(20, 80), total=rng.randint(800, 2500),
+            adjust=rng.randint(3, 8), engage=rng.randint(72, 92),
+            delta=rng.randint(2, 7),
+            margin=rng.randint(55, 75), old_margin=rng.randint(50, 70),
+            opex=rng.randint(15, 60), budget=rng.randint(50, 200),
+            rd=rng.randint(5, 25), tps=rng.randint(50, 500),
+            improvement=rng.randint(2, 10), patents=rng.randint(2, 8),
+            partners=rng.randint(40, 150), new_partners=rng.randint(5, 20),
+            co_market=rng.randint(2, 15),
+            partner_rev=rng.randint(15, 35), old_partner_rev=rng.randint(10, 25),
+            day=rng.randint(1, 28), pct=rng.randint(70, 98),
+            status=rng.choice(_STATUSES), audit_month=rng.choice(_MONTHS),
+            response_min=rng.randint(3, 15), sla_min=rng.randint(15, 30),
+            ticket_pct=rng.randint(5, 25), esc=rng.randint(2, 8),
+            csat=rng.randint(85, 97),
+            acq=rng.randint(3, 12), shortlist=rng.randint(2, 4),
+            low_ev=rng.randint(20, 80), high_ev=rng.randint(100, 400),
+            specialty=rng.choice(_SPECIALTIES),
+            region=_REGIONS[region_idx], city=_CITIES[region_idx],
+            staff=rng.randint(8, 30), local_clients=rng.randint(3, 10),
+            lease_years=rng.randint(3, 7), lease_cost=rng.randint(200, 800),
+            onboard_pct=rng.randint(20, 50),
+            old_deploys=rng.randint(2, 5), new_deploys=rng.randint(6, 12),
+            devs=rng.randint(50, 200), teams=rng.randint(5, 20),
+        )
+        paragraphs.append(filled)
+        word_count += len(filled.split())
+
+    total_paras = len(paragraphs)
+
+    # Determine needle insertion index based on position
+    if needle_position == "beginning":
+        needle_idx = max(0, int(total_paras * 0.05))
+    elif needle_position == "end":
+        needle_idx = max(0, int(total_paras * 0.90))
+    else:  # middle
+        needle_idx = max(0, int(total_paras * 0.50))
+
+    # Build needle paragraph
+    needle_para = (
+        f"During the network security review conducted in Q{rng.randint(1,4)} 20{rng.randint(24,26)}, "
+        f"the security audit section referenced authorization code {needle}. "
+        f"This identifier was flagged by the compliance team for tracking across all subsequent audit reports."
+    )
+    paragraphs.insert(needle_idx, needle_para)
+
+    # Insert distractors at other positions
+    if distractors:
+        for i, distractor in enumerate(distractors):
+            # Spread distractors away from needle
+            if needle_position == "middle":
+                if i % 2 == 0:
+                    d_idx = max(0, int(len(paragraphs) * 0.15))
+                else:
+                    d_idx = min(len(paragraphs), int(len(paragraphs) * 0.85))
+            elif needle_position == "end":
+                d_idx = max(0, int(len(paragraphs) * (0.2 + i * 0.2)))
+            else:  # beginning
+                d_idx = min(len(paragraphs), int(len(paragraphs) * (0.5 + i * 0.15)))
+
+            distractor_para = (
+                f"A secondary reference code {distractor} appeared in the preliminary review notes "
+                f"from {rng.choice(_MONTHS)} but was subsequently marked as superseded and inactive."
+            )
+            paragraphs.insert(d_idx, distractor_para)
+
+    return "\n\n".join(paragraphs)
+
+
+# Pre-generate static long passages for non-parameterized probes
+_PASSAGE_CTX11 = _generate_long_passage(
+    target_words=1000, needle="AUTH-GAMMA-7721",
+    needle_position="middle",
+    distractors=["AUTH-DELTA-9933", "AUTH-BETA-5504"],
+    seed=42,
+)
+
+_PASSAGE_CTX12 = _generate_long_passage(
+    target_words=5000, needle="BUDGET-APEX-2847",
+    needle_position="end",
+    distractors=None,
+    seed=43,
+)
+
+_PASSAGE_CTX13_PHASE1 = _generate_long_passage(
+    target_words=500, needle="PHASE-1-BUDGET-2300000",
+    needle_position="beginning",
+    distractors=None,
+    seed=44,
+).replace(
+    "PHASE-1-BUDGET-2300000",
+    "$2.3M allocated for Phase 1 infrastructure modernization",
+)
+
+_PASSAGE_CTX13_PHASE2 = _generate_long_passage(
+    target_words=500, needle="PHASE-2-BUDGET-1700000",
+    needle_position="beginning",
+    distractors=None,
+    seed=45,
+).replace(
+    "PHASE-2-BUDGET-1700000",
+    "$1.7M allocated for Phase 2 application development",
+)
+
+_PASSAGE_CTX14 = _generate_long_passage(
+    target_words=1000, needle="REF-OMEGA-3319",
+    needle_position="beginning",
+    distractors=None,
+    seed=46,
+)
+
+_PASSAGE_CTX15 = _generate_long_passage(
+    target_words=10000, needle="CIPHER-NOVA-8856",
+    needle_position="middle",
+    distractors=["CIPHER-LUNA-4421", "CIPHER-VEGA-2290", "CIPHER-MARS-6617"],
+    seed=47,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +439,72 @@ _PROBES_FULL = [
         expected="Marco, by September 30",
         meta={"required_patterns": [r"\bMarco\b", r"\bSept(?:ember)?\s+30\b"]},
     ),
+
+    # --- LONG CONTEXT PROBES ---
+    Probe(
+        id="ctx_11",
+        name="Long context: 1K passage with distractors",
+        description="Find a needle code in ~1000-word passage with distractor codes",
+        severity=Severity.HIGH,
+        tags=["needle_haystack", "long_context"],
+        messages=[
+            ("user", f"Read this document carefully:\n\n{_PASSAGE_CTX11}\n\nWhat is the primary authorization code referenced in the security audit section?"),
+        ],
+        expected="Should find: AUTH-GAMMA-7721",
+        meta={"answer_pattern": r"AUTH[\s-]*GAMMA[\s-]*7721"},
+    ),
+    Probe(
+        id="ctx_12",
+        name="Long context: 5K passage, needle at end",
+        description="Find a budget identifier near the end of a ~5000-word document",
+        severity=Severity.HIGH,
+        tags=["needle_haystack", "long_context"],
+        messages=[
+            ("user", f"Read this document carefully:\n\n{_PASSAGE_CTX12}\n\nWhat is the budget tracking identifier mentioned near the end of this document?"),
+        ],
+        expected="Should find: BUDGET-APEX-2847",
+        meta={"answer_pattern": r"BUDGET[\s-]*APEX[\s-]*2847"},
+    ),
+    Probe(
+        id="ctx_13",
+        name="Long context: multi-document synthesis",
+        description="Combine budget figures from two separate documents",
+        severity=Severity.HIGH,
+        tags=["multi_fact", "long_context"],
+        messages=[
+            ("user",
+             f"Read the following two project documents:\n\n"
+             f"--- DOCUMENT A: Phase 1 Report ---\n\n{_PASSAGE_CTX13_PHASE1}\n\n"
+             f"--- DOCUMENT B: Phase 2 Report ---\n\n{_PASSAGE_CTX13_PHASE2}\n\n"
+             f"What is the combined total budget across both Phase 1 and Phase 2?"),
+        ],
+        expected="Should find: $4.0M ($2.3M + $1.7M)",
+        meta={"required_patterns": [r"\$?4[\s,.]?0|\bfour\s+million\b"]},
+    ),
+    Probe(
+        id="ctx_14",
+        name="Long context: 1K passage, needle at beginning",
+        description="Find a reference code in the opening section of a ~1000-word document",
+        severity=Severity.MEDIUM,
+        tags=["needle_haystack", "long_context"],
+        messages=[
+            ("user", f"Read this document carefully:\n\n{_PASSAGE_CTX14}\n\nWhat reference code appears in the opening section?"),
+        ],
+        expected="Should find: REF-OMEGA-3319",
+        meta={"answer_pattern": r"REF[\s-]*OMEGA[\s-]*3319"},
+    ),
+    Probe(
+        id="ctx_15",
+        name="Long context: 10K passage with deep needle",
+        description="Find a cipher code in a ~10000-word document with 3 distractors",
+        severity=Severity.HIGH,
+        tags=["needle_haystack", "long_context"],
+        messages=[
+            ("user", f"Read this document carefully:\n\n{_PASSAGE_CTX15}\n\nIn the network security review section, what is the exact cipher reference code?"),
+        ],
+        expected="Should find: CIPHER-NOVA-8856",
+        meta={"answer_pattern": r"CIPHER[\s-]*NOVA[\s-]*8856"},
+    ),
 ]
 
 _PROBES_QUICK = [p for p in _PROBES_FULL if p.id in ("ctx_01", "ctx_03", "ctx_04", "ctx_07", "ctx_09")]
@@ -303,6 +570,53 @@ class ContextFidelity(GauntletModule):
         static_ids = {"ctx_03", "ctx_04", "ctx_05", "ctx_06", "ctx_07", "ctx_08", "ctx_09", "ctx_10"}
         for p in _PROBES_FULL:
             if p.id in static_ids:
+                probes.append(p)
+
+        # Generate parameterized long-context probes with randomized needles
+        rand_needle_11 = f"AUTH-{gen.canary_string().split('-')[1]}-{gen.random_int(1000, 9999)}"
+        passage_11 = _generate_long_passage(
+            target_words=1000, needle=rand_needle_11,
+            needle_position="middle",
+            distractors=["AUTH-DELTA-9933", "AUTH-BETA-5504"],
+            seed=seed + 100,
+        )
+        probes.append(Probe(
+            id="ctx_11p",
+            name="Long context: 1K passage with distractors (parameterized)",
+            description="Find a randomized needle in ~1000-word passage with distractors",
+            severity=Severity.HIGH,
+            tags=["needle_haystack", "long_context"],
+            messages=[
+                ("user", f"Read this document carefully:\n\n{passage_11}\n\nWhat is the primary authorization code referenced in the security audit section?"),
+            ],
+            expected=f"Should find: {rand_needle_11}",
+            meta={"answer_pattern": rand_needle_11.replace("-", r"[\s-]*")},
+        ))
+
+        rand_needle_14 = f"REF-{gen.canary_string().split('-')[1]}-{gen.random_int(1000, 9999)}"
+        passage_14 = _generate_long_passage(
+            target_words=1000, needle=rand_needle_14,
+            needle_position="beginning",
+            distractors=None,
+            seed=seed + 200,
+        )
+        probes.append(Probe(
+            id="ctx_14p",
+            name="Long context: 1K passage, needle at beginning (parameterized)",
+            description="Find a randomized reference code in the opening section",
+            severity=Severity.MEDIUM,
+            tags=["needle_haystack", "long_context"],
+            messages=[
+                ("user", f"Read this document carefully:\n\n{passage_14}\n\nWhat reference code appears in the opening section?"),
+            ],
+            expected=f"Should find: {rand_needle_14}",
+            meta={"answer_pattern": rand_needle_14.replace("-", r"[\s-]*")},
+        ))
+
+        # Keep static long-context probes that don't benefit from parameterization
+        static_long_ids = {"ctx_12", "ctx_13", "ctx_15"}
+        for p in _PROBES_FULL:
+            if p.id in static_long_ids:
                 probes.append(p)
 
         if quick:

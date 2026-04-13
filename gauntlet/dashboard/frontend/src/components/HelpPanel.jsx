@@ -26,18 +26,24 @@ The winner is determined by a transparent composite score: Speed (30%) + Quality
   {
     title: 'Run the benchmark suite',
     icon: Gauge,
-    content: `The Benchmark tab runs 20 automated tests across 8 categories:
+    content: `The Benchmark tab runs 17 behavioral modules with programmatic verification:
 
-- Instruction Following: does it do exactly what you asked?
-- Code Generation: can it fix bugs and build data structures?
-- Factual Accuracy: does it hallucinate or give real facts?
-- Reasoning: multi-step logic and math
-- Consistency: same question asked 3 ways = same answer?
-- Pressure Resistance: does it cave when you push back?
-- Speed: tokens per second on your hardware
-- Context Recall: find hidden info in longer text
+- Ambiguity Honesty: does it admit when something is unclear?
+- Sycophancy Trap / Gradient: does it cave when you push back?
+- Instruction Adherence / Decay: does it follow instructions precisely?
+- Consistency Drift: same question asked different ways = same answer?
+- Safety Boundary: does it refuse harmful requests?
+- Hallucination Probe: does it make up facts?
+- Context Fidelity: does it stay true to provided context?
+- Refusal Calibration: does it refuse the right things?
+- Confidence Calibration: is stated confidence correlated with accuracy?
+- Anchoring Bias / Framing Effect: is it swayed by irrelevant framing?
+- Prompt Injection: can it resist adversarial instructions?
+- Logical Consistency / Temporal Coherence: sound reasoning over time
 
-Every test has a programmatic pass/fail check. No LLM judges another LLM.`
+Each module runs multiple probes with programmatic pass/fail checks.
+Quick mode uses fewer probes per module; full mode is comprehensive.
+Results are submitted to the community leaderboard automatically.`
   },
   {
     title: 'Understanding scores',
@@ -74,7 +80,7 @@ export GOOGLE_API_KEY=AI...
 
 Then in the terminal: gauntlet run openai:gpt-4o anthropic:claude-sonnet-4-20250514 "your prompt"
 
-Cloud models aren't shown in the dashboard model picker yet but work via CLI.`
+Cloud models work via CLI. Dashboard support is planned.`
   },
   {
     q: 'What does the SWE test do?',
@@ -86,13 +92,13 @@ Use: gauntlet swe (from terminal)`
     q: 'How is the winner decided?',
     a: `For "Run Comparison": a weighted formula -- Speed (30%) + Quality (50%) + Responsiveness (20%). Quality comes from an optional LLM judge. You see every component score.
 
-For "Benchmark": the overall percentage of tests passed. Each test is pass/fail with programmatic verification (no LLM judging).
+For "Benchmark": a severity-weighted score across 17 behavioral modules. Each probe has programmatic verification. The overall grade (A-F) reflects behavioral reliability.
 
-The leaderboard tracks trust rankings over many comparisons using a weighted rating system.`
+The leaderboard tracks trust rankings over many comparisons using a weighted rating system. Results are also submitted to the community leaderboard.`
   },
   {
     q: 'Is my data sent anywhere?',
-    a: `No. Everything runs locally. Your prompts, model outputs, and benchmark results never leave your machine. Gauntlet connects only to your local Ollama instance (or cloud APIs if you explicitly set API keys).`
+    a: `All inference runs locally via Ollama (or cloud APIs if you explicitly set API keys). Benchmark results are submitted to the community leaderboard at basaltlabs.app to enable cross-hardware comparisons and public rankings. No prompts or model outputs are sent — only aggregate scores, probe pass/fail data, and hardware fingerprints.`
   },
   {
     q: 'How do I add more models?',
@@ -186,8 +192,8 @@ export default function HelpPanel() {
           {[
             ['gauntlet dashboard', 'Open this dashboard'],
             ['gauntlet run "prompt"', 'Quick comparison with auto-detected models'],
-            ['gauntlet benchmark', 'Run the full 20-test suite'],
-            ['gauntlet benchmark --quick', 'Run 8 key tests (faster)'],
+            ['gauntlet benchmark', 'Run the full 17-module suite'],
+            ['gauntlet benchmark --quick', 'Run 17 modules with fewer probes (faster)'],
             ['gauntlet swe', 'SWE-bench style code testing'],
             ['gauntlet discover', 'List all installed models'],
             ['gauntlet leaderboard', 'View persistent trust rankings'],

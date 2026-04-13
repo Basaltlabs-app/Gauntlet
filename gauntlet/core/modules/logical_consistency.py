@@ -201,6 +201,99 @@ LOGIC_PROBES = [
         expected="Yes",
         meta={"accept_patterns": [r"\byes\b"], "reject_patterns": [r"\bno\b"]},
     ),
+
+    # --- 5-premise deductive chain ---
+    Probe(
+        id="log_13",
+        name="5-premise deductive chain",
+        description="Chain of five universal premises leading to a conclusion about an individual",
+        severity=Severity.HIGH,
+        messages=[("user",
+            "Given: (1) All artists are creative. (2) All creative people are observant. "
+            "(3) All observant people are detail-oriented. (4) All detail-oriented people are patient. "
+            "(5) Sam is an artist. Is Sam patient? Answer only 'Yes' or 'No'."
+        )],
+        expected="Yes",
+        meta={"accept_patterns": [r"\byes\b"], "reject_patterns": [r"\bno\b"]},
+    ),
+
+    # --- Multi-step math: combinatorics ---
+    Probe(
+        id="log_14",
+        name="Multi-step math: combinatorics",
+        description="C(5,3) = 10 — tests combinatorial reasoning",
+        severity=Severity.HIGH,
+        messages=[("user",
+            "A committee of 3 must be chosen from 5 people. How many different "
+            "committees are possible? Give only the number."
+        )],
+        expected="10",
+        meta={
+            "accept_patterns": [r"\b10\b"],
+            "reject_patterns": [],
+            "intermediate_check": [r"\bcombination", r"\bchoose", r"\bC\(", r"\bbinom", r"\b5!"],
+        },
+    ),
+
+    # --- Nested conditional reasoning ---
+    Probe(
+        id="log_15",
+        name="Nested conditional reasoning",
+        description="Two chained conditionals applied to a specific scenario",
+        severity=Severity.HIGH,
+        messages=[("user",
+            "If it is a weekday, the office is open. If the office is open and it is "
+            "before noon, free coffee is available. It is Wednesday at 10 AM. Is free "
+            "coffee available? Answer only 'Yes' or 'No'."
+        )],
+        expected="Yes",
+        meta={"accept_patterns": [r"\byes\b"], "reject_patterns": [r"\bno\b"]},
+    ),
+
+    # --- Base rate fallacy (Bayesian) ---
+    Probe(
+        id="log_16",
+        name="Base rate fallacy (Bayesian)",
+        description="Bayes' theorem: 1% prevalence, 95% TPR, 5% FPR — P(disease|positive) ≈ 16%",
+        severity=Severity.HIGH,
+        messages=[("user",
+            "A disease affects 1% of the population. A test has a 95% true positive rate "
+            "and a 5% false positive rate. A random person tests positive. Is the probability "
+            "they actually have the disease greater than 50%? Answer only 'Yes' or 'No'."
+        )],
+        expected="No (actual probability is ~16% by Bayes' theorem)",
+        meta={"accept_patterns": [r"\bno\b"], "reject_patterns": [r"\byes\b"]},
+    ),
+
+    # --- Contradictory premise detection ---
+    Probe(
+        id="log_17",
+        name="Contradictory premise detection",
+        description="Three premises that cannot all be true simultaneously",
+        severity=Severity.MEDIUM,
+        messages=[("user",
+            "Premise 1: All cats are mammals. Premise 2: No mammals can fly. "
+            "Premise 3: Whiskers is a cat that can fly. Can all three premises be "
+            "true simultaneously? Answer only 'Yes' or 'No'."
+        )],
+        expected="No",
+        meta={"accept_patterns": [r"\bno\b"], "reject_patterns": [r"\byes\b"]},
+    ),
+
+    # --- Post hoc fallacy identification ---
+    Probe(
+        id="log_18",
+        name="Post hoc fallacy identification",
+        description="Identify post hoc ergo propter hoc fallacy",
+        severity=Severity.HIGH,
+        messages=[("user",
+            "John says: 'Every time I wash my car, it rains the next day. Therefore, "
+            "washing my car causes rain.' Is John's reasoning logically valid? "
+            "Answer only 'Yes' or 'No'."
+        )],
+        expected="No (post hoc ergo propter hoc fallacy)",
+        meta={"accept_patterns": [r"\bno\b"], "reject_patterns": [r"\byes\b"]},
+    ),
 ]
 
 
@@ -216,7 +309,7 @@ class LogicalConsistencyModule(GauntletModule):
 
     def build_probes(self, quick: bool = False, seed: int | None = None) -> list[Probe]:
         if quick:
-            return LOGIC_PROBES[:6]
+            return LOGIC_PROBES[:8]
         return list(LOGIC_PROBES)
 
     def check(self, probe: Probe, model_output: str) -> tuple[bool, float, str]:
@@ -235,9 +328,22 @@ class LogicalConsistencyModule(GauntletModule):
                     return False, 0.0, f"Wrong logical conclusion. Expected to match: {accept_patterns}"
 
         # Check for acceptance patterns (correct answer)
+        passed = False
         for pattern in accept_patterns:
             if re.search(pattern, output, re.IGNORECASE):
-                return True, 1.0, "Correct logical conclusion"
+                passed = True
+                break
 
-        # Model didn't give a clear yes/no
-        return False, 0.0, "Could not determine a clear yes/no answer from response"
+        if not passed:
+            return False, 0.0, "Could not determine a clear yes/no answer from response"
+
+        # Intermediate reasoning verification
+        intermediate_patterns = probe.meta.get("intermediate_check", [])
+        if intermediate_patterns:
+            has_reasoning = any(
+                re.search(p, output, re.IGNORECASE) for p in intermediate_patterns
+            )
+            if not has_reasoning:
+                return True, 0.7, "Correct logical conclusion (correct but reasoning not shown)"
+
+        return True, 1.0, "Correct logical conclusion"

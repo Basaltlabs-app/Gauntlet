@@ -6,6 +6,7 @@ Modules don't talk to Ollama directly. They use ChatClient, which:
   - Tracks token counts and timing
   - Supports both single-shot and multi-turn probes
   - Works with any provider (Ollama, OpenAI, etc.)
+  - Auto-detects thinking models and disables CoT to prevent timeouts
 """
 
 from __future__ import annotations
@@ -16,7 +17,10 @@ from typing import Optional
 
 import httpx
 
-from gauntlet.core.config import get_ollama_host
+from gauntlet.core.config import get_ollama_host, get_llamacpp_host
+
+# Cache thinking-model detection per model name (survives across ChatClient instances)
+_thinking_model_cache: dict[str, bool] = {}
 
 
 @dataclass
@@ -54,10 +58,14 @@ class ChatClient:
     _history: list[ChatMessage] = field(default_factory=list, repr=False)
     _total_tokens: int = field(default=0, repr=False)
     _host: str = field(default="", repr=False)
+    _is_thinking_model: bool | None = field(default=None, repr=False)
 
     def __post_init__(self):
         if not self._host:
-            self._host = get_ollama_host()
+            if self.provider == "llamacpp":
+                self._host = get_llamacpp_host()
+            else:
+                self._host = get_ollama_host()
 
     def reset(self) -> None:
         """Clear conversation history for the next probe."""
@@ -113,12 +121,51 @@ class ChatClient:
 
         if self.provider == "ollama":
             return await self._ollama_chat(temp)
+        elif self.provider == "llamacpp":
+            return await self._llamacpp_chat(temp)
         else:
             raise NotImplementedError(f"Provider {self.provider} not yet supported for ChatClient")
+
+    async def _detect_thinking_model(self) -> bool:
+        """Auto-detect if a model supports thinking/CoT via Ollama /api/show.
+
+        Checks the 'capabilities' field for 'thinking'. Results are cached
+        per model name so the API is only called once per model.
+        """
+        if self._is_thinking_model is not None:
+            return self._is_thinking_model
+
+        if self.model_name in _thinking_model_cache:
+            self._is_thinking_model = _thinking_model_cache[self.model_name]
+            return self._is_thinking_model
+
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as http:
+                resp = await http.post(
+                    f"{self._host}/api/show",
+                    json={"name": self.model_name},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    capabilities = data.get("capabilities", [])
+                    is_thinking = "thinking" in capabilities
+                    _thinking_model_cache[self.model_name] = is_thinking
+                    self._is_thinking_model = is_thinking
+                    return is_thinking
+        except (httpx.ConnectError, httpx.TimeoutException):
+            pass
+
+        self._is_thinking_model = False
+        return False
 
     async def _ollama_chat(self, temperature: float) -> str:
         """Call Ollama /api/chat endpoint."""
         url = f"{self._host}/api/chat"
+
+        # Auto-detect thinking models and disable CoT to prevent timeouts.
+        # Gauntlet tests behavioral reliability, not reasoning chains —
+        # thinking mode wastes tokens and causes massive slowdowns.
+        is_thinking = await self._detect_thinking_model()
 
         payload = {
             "model": self.model_name,
@@ -132,6 +179,9 @@ class ChatClient:
                 "num_predict": self.max_tokens,
             },
         }
+
+        if is_thinking:
+            payload["think"] = False
 
         # Use httpx.Timeout for fine-grained control:
         # - connect: 30s to establish connection
@@ -173,6 +223,66 @@ class ChatClient:
         # Add assistant message to history
         self._history.append(ChatMessage(role="assistant", content=content))
 
+        return content
+
+    async def _llamacpp_chat(self, temperature: float) -> str:
+        """Call llama.cpp server via OpenAI-compatible /v1/chat/completions.
+
+        llama-server (llama.cpp) exposes an OpenAI-compatible API by default.
+        Start it with: llama-server -m model.gguf --port 8080
+
+        Set LLAMACPP_HOST env var to override the default http://localhost:8080.
+        The model_name field is sent in the request but llama-server typically
+        ignores it (it serves whatever model was loaded at startup).
+        """
+        url = f"{self._host}/v1/chat/completions"
+
+        payload = {
+            "model": self.model_name,
+            "messages": [
+                {"role": m.role, "content": m.content}
+                for m in self._history
+            ],
+            "temperature": temperature,
+            "max_tokens": self.max_tokens,
+            "stream": False,
+        }
+
+        timeout = httpx.Timeout(
+            connect=30.0,
+            read=self.timeout_s,
+            write=30.0,
+            pool=30.0,
+        )
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as http:
+                resp = await http.post(url, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.ReadTimeout:
+            raise TimeoutError(
+                f"llama.cpp server did not respond within {self.timeout_s:.0f}s. "
+                f"Model may be too large for available memory."
+            )
+        except httpx.ConnectError:
+            raise ConnectionError(
+                f"Cannot connect to llama.cpp server at {self._host}. "
+                f"Start it with: llama-server -m model.gguf --port 8080"
+            )
+
+        # OpenAI format: choices[0].message.content
+        choices = data.get("choices", [])
+        if not choices:
+            raise ValueError("llama.cpp returned no choices")
+
+        content = choices[0].get("message", {}).get("content", "")
+
+        # Track tokens from usage field
+        usage = data.get("usage", {})
+        self._total_tokens += usage.get("completion_tokens", 0)
+
+        self._history.append(ChatMessage(role="assistant", content=content))
         return content
 
     @property

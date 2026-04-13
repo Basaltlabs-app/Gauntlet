@@ -5,10 +5,15 @@ Multi-turn test protocol:
   Filler phase (variable):  Unrelated conversation to push facts out of attention
   Test phase (turns 6+):    Questions that require recalling seeded facts
 
-Three probes test recall at increasing distances:
+Eight probes test recall at increasing distances:
   tc_01  --  5 filler turns  (distance 5)   -- MEDIUM
   tc_02  -- 10 filler turns  (distance 10)  -- HIGH
   tc_03  -- 15 filler turns  (distance 15)  -- HIGH
+  tc_04  --  3 filler turns  (distance 3)   -- MEDIUM (easy baseline)
+  tc_05  --  7 filler turns  (distance 7)   -- HIGH
+  tc_06  -- 12 filler turns  (distance 12)  -- HIGH
+  tc_07  -- 20 filler turns  (distance 20)  -- CRITICAL
+  tc_08  -- 25 filler turns  (distance 25)  -- CRITICAL
 
 Scoring per probe:
   Each of 5 test questions is worth 0.2.
@@ -18,7 +23,7 @@ Scoring per probe:
 
   passed = True if score >= 0.6 (at least 3 of 5 facts recalled)
 
-Quick mode: tc_01 only.
+Quick mode: tc_01, tc_04, tc_05 (distances 5, 3, 7).
 """
 
 from __future__ import annotations
@@ -71,6 +76,16 @@ FILLER_MESSAGES: list[str] = [
     "Explain the CAP theorem and describe a real-world system that makes each of the three possible tradeoff choices.",
     "How do modern lithium-ion batteries work at the electrochemical level, and what limits their energy density?",
     "Describe the Doppler effect and explain how it is used in both medical ultrasound and astronomical redshift measurements.",
+    "What are the key differences between REST and GraphQL APIs?",
+    "Explain how garbage collection works in Java vs Go.",
+    "What caused the 2010 flash crash in US stock markets?",
+    "How does public-key cryptography enable secure communication?",
+    "Explain the observer pattern and when you'd use it.",
+    "What role does the hypothalamus play in temperature regulation?",
+    "How do B-trees optimize disk-based database lookups?",
+    "Explain the difference between monetary and fiscal policy.",
+    "What is the halting problem and why is it significant?",
+    "How do neural networks handle vanishing gradients?",
 ]
 
 
@@ -257,9 +272,44 @@ _PROBES_FULL: list[_TCProbe] = [
         severity=Severity.HIGH,
         filler_distance=15,
     ),
+    _TCProbe(
+        id="tc_04",
+        name="Recall at distance 3",
+        description="5 seed facts + 3 filler turns + 5 recall tests (easy baseline)",
+        severity=Severity.MEDIUM,
+        filler_distance=3,
+    ),
+    _TCProbe(
+        id="tc_05",
+        name="Recall at distance 7",
+        description="5 seed facts + 7 filler turns + 5 recall tests",
+        severity=Severity.HIGH,
+        filler_distance=7,
+    ),
+    _TCProbe(
+        id="tc_06",
+        name="Recall at distance 12",
+        description="5 seed facts + 12 filler turns + 5 recall tests",
+        severity=Severity.HIGH,
+        filler_distance=12,
+    ),
+    _TCProbe(
+        id="tc_07",
+        name="Recall at distance 20",
+        description="5 seed facts + 20 filler turns + 5 recall tests",
+        severity=Severity.CRITICAL,
+        filler_distance=20,
+    ),
+    _TCProbe(
+        id="tc_08",
+        name="Recall at distance 25",
+        description="5 seed facts + 25 filler turns + 5 recall tests",
+        severity=Severity.CRITICAL,
+        filler_distance=25,
+    ),
 ]
 
-_PROBES_QUICK: list[_TCProbe] = [_PROBES_FULL[0]]
+_PROBES_QUICK: list[_TCProbe] = [p for p in _PROBES_FULL if p.id in ("tc_01", "tc_04", "tc_05")]
 
 
 # ---------------------------------------------------------------------------

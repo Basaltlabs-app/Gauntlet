@@ -35,6 +35,10 @@ PROVIDER_OPENAI = "openai"
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_GOOGLE = "google"
 PROVIDER_OPENAI_COMPAT = "openai-compatible"
+PROVIDER_LLAMACPP = "llamacpp"
+
+# llama.cpp defaults
+DEFAULT_LLAMACPP_HOST = "http://localhost:8080"
 
 
 @dataclass
@@ -58,6 +62,11 @@ def get_ollama_host() -> str:
     return os.environ.get("OLLAMA_HOST", DEFAULT_OLLAMA_HOST)
 
 
+def get_llamacpp_host() -> str:
+    """Get the llama.cpp server host from env or default."""
+    return os.environ.get("LLAMACPP_HOST", DEFAULT_LLAMACPP_HOST)
+
+
 def detect_provider(model_name: str) -> tuple[str, str]:
     """Detect the provider and clean model name from a model specifier.
 
@@ -73,7 +82,7 @@ def detect_provider(model_name: str) -> tuple[str, str]:
         prefix, _, rest = model_name.partition(":")
 
         # Check for known providers
-        if prefix in (PROVIDER_OLLAMA, PROVIDER_OPENAI, PROVIDER_ANTHROPIC, PROVIDER_GOOGLE):
+        if prefix in (PROVIDER_OLLAMA, PROVIDER_OPENAI, PROVIDER_ANTHROPIC, PROVIDER_GOOGLE, PROVIDER_LLAMACPP):
             return prefix, rest
 
         # Check for URL-based custom endpoint (openai-compatible)

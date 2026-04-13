@@ -368,12 +368,14 @@ class GauntletModule(ABC):
         config may include:
           - quick (bool): use reduced probe set
           - on_probe_complete: callback(probe_index, total, probe_name, passed)
+          - cancel_check: callable that returns True to abort between probes
         """
         import time
 
         config = config or {}
         quick = config.get("quick", False)
         on_probe = config.get("on_probe_complete")
+        cancel_check = config.get("cancel_check")
         seed = config.get("seed")
         probes = self.build_probes(quick=quick, seed=seed)
         result = ModuleResult(
@@ -383,11 +385,31 @@ class GauntletModule(ABC):
         )
 
         for i, probe in enumerate(probes):
+            # Check for cancellation between probes
+            if cancel_check and cancel_check():
+                break
+
             t0 = time.perf_counter()
             try:
-                # Send probe messages and get response
+                # Send probe messages and get response.
+                # If cancel_check is set, wrap in a polling loop so we can
+                # abort even while the model is generating.
                 client.reset()
-                response = await client.chat(probe.messages)
+                if cancel_check:
+                    import asyncio
+                    chat_task = asyncio.create_task(client.chat(probe.messages))
+                    while not chat_task.done():
+                        if cancel_check():
+                            chat_task.cancel()
+                            try:
+                                await chat_task
+                            except asyncio.CancelledError:
+                                pass
+                            raise asyncio.CancelledError("Benchmark stopped")
+                        await asyncio.sleep(0.5)
+                    response = chat_task.result()
+                else:
+                    response = await client.chat(probe.messages)
                 elapsed = time.perf_counter() - t0
 
                 passed, score, reason = self.check(probe, response)
@@ -410,6 +432,23 @@ class GauntletModule(ABC):
                     duration_s=elapsed,
                     turn_count=len(probe.messages),
                 ))
+            except asyncio.CancelledError:
+                # Benchmark was stopped mid-probe — record partial and exit
+                elapsed = time.perf_counter() - t0
+                result.probe_results.append(ProbeResult(
+                    probe_id=probe.id,
+                    probe_name=probe.name,
+                    passed=False,
+                    score=0.0,
+                    severity=probe.severity,
+                    model_output="[CANCELLED] Benchmark stopped by user",
+                    expected=probe.expected,
+                    reason="Cancelled by user",
+                    duration_s=elapsed,
+                ))
+                if on_probe:
+                    on_probe(i + 1, len(probes), probe.name, False)
+                break
             except Exception as e:
                 elapsed = time.perf_counter() - t0
                 passed = False
@@ -494,3 +533,71 @@ class GauntletModule(ABC):
             high_failures=high_fails,
             summary=summary,
         )
+
+
+# ---------------------------------------------------------------------------
+# Lightweight semantic similarity (stdlib-only, no embeddings)
+# ---------------------------------------------------------------------------
+
+_STOPWORDS = frozenset(
+    "a an the and or but if in on at to for of is it be as by was are were "
+    "been has have had do does did will would shall should may might can could "
+    "this that these those with from not no nor so yet also just about above "
+    "after again all am any both each few he her here him his how i its me "
+    "my no nor off our out own she some such than them then there they too "
+    "up us very we what when where which while who whom why you your".split()
+)
+
+
+def _char_ngrams(text: str, n: int = 3) -> set[str]:
+    """Extract character n-grams from text."""
+    text = text.lower()
+    return {text[i:i + n] for i in range(len(text) - n + 1)} if len(text) >= n else set()
+
+
+def _extract_keyphrases(text: str) -> set[str]:
+    """Extract meaningful words (non-stopwords, length >= 3)."""
+    import re
+    words = re.findall(r"[a-z]{3,}", text.lower())
+    return {w for w in words if w not in _STOPWORDS}
+
+
+def _extract_numbers(text: str) -> set[str]:
+    """Extract all numbers from text."""
+    import re
+    return set(re.findall(r"\b\d+\.?\d*\b", text))
+
+
+def _jaccard(a: set, b: set) -> float:
+    """Jaccard similarity between two sets."""
+    if not a and not b:
+        return 1.0
+    union = a | b
+    return len(a & b) / len(union) if union else 0.0
+
+
+def semantic_similarity(text_a: str, text_b: str) -> dict:
+    """Compute lightweight semantic similarity between two texts.
+
+    Uses stdlib-only techniques (no embeddings, no external deps):
+      - Character 3-gram Jaccard overlap
+      - Key-phrase overlap (non-stopword words)
+      - Numerical value consistency
+
+    Returns dict with individual scores and weighted overall (all 0.0-1.0).
+    """
+    ngram = _jaccard(_char_ngrams(text_a), _char_ngrams(text_b))
+    keyphrase = _jaccard(_extract_keyphrases(text_a), _extract_keyphrases(text_b))
+
+    nums_a = _extract_numbers(text_a)
+    nums_b = _extract_numbers(text_b)
+    number = _jaccard(nums_a, nums_b) if (nums_a or nums_b) else 1.0
+
+    overall = 0.4 * ngram + 0.4 * keyphrase + 0.2 * number
+
+    return {
+        "ngram_overlap": round(ngram, 3),
+        "keyphrase_overlap": round(keyphrase, 3),
+        "number_consistency": round(number, 3),
+        "overall": round(overall, 3),
+    }

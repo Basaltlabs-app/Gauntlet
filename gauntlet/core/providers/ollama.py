@@ -19,6 +19,26 @@ class OllamaProvider(LLMProvider):
 
     def __init__(self, base_url: str = "http://localhost:11434"):
         self.base_url = base_url.rstrip("/")
+        self._thinking_cache: dict[str, bool] = {}
+
+    async def is_thinking_model(self, model: str) -> bool:
+        """Detect if a model has thinking/CoT capability via /api/show."""
+        if model in self._thinking_cache:
+            return self._thinking_cache[model]
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+                resp = await client.post(
+                    f"{self.base_url}/api/show", json={"name": model}
+                )
+                if resp.status_code == 200:
+                    caps = resp.json().get("capabilities", [])
+                    result = "thinking" in caps
+                    self._thinking_cache[model] = result
+                    return result
+        except (httpx.ConnectError, httpx.TimeoutException):
+            pass
+        self._thinking_cache[model] = False
+        return False
 
     async def stream_generate(
         self,
@@ -29,6 +49,10 @@ class OllamaProvider(LLMProvider):
     ) -> AsyncIterator[StreamChunk]:
         """Stream tokens from an Ollama model."""
         payload: dict = {"model": model, "prompt": prompt, "stream": True}
+
+        # Disable thinking for reasoning models — saves tokens and time
+        if await self.is_thinking_model(model):
+            payload["think"] = False
 
         if system:
             payload["system"] = system

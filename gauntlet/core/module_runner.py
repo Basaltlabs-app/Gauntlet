@@ -283,6 +283,8 @@ async def run_gauntlet_from_spec(
     on_module_start: Callable | None = None,
     on_module_done: Callable | None = None,
     on_probe_done: Callable | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+    timeout_s: float | None = None,
 ) -> tuple[list[ModuleResult], GauntletScore, TrustScore]:
     """Run gauntlet from a model spec string (e.g., 'gemma4:e2b', 'openai:gpt-4o').
 
@@ -293,6 +295,8 @@ async def run_gauntlet_from_spec(
         on_module_start(module_name, module_idx, total_modules)
         on_module_done(module_name, module_idx, total_modules, module_result, module_score)
         on_probe_done(module_name, probe_name, probe_idx, total_probes, passed)
+        cancel_check() -> bool: If provided, checked between modules. Returns True to abort.
+        timeout_s: Per-probe timeout override (default: use client default).
     """
     from gauntlet.core.config import detect_provider
 
@@ -321,12 +325,22 @@ async def run_gauntlet_from_spec(
     run_config: dict = {"quick": quick}
     if on_probe_done:
         run_config["on_probe_complete"] = _on_probe_complete
+    if timeout_s is not None:
+        run_config["timeout_s"] = timeout_s
+    if cancel_check:
+        run_config["cancel_check"] = cancel_check
 
     all_results = []
     all_scores = []
     module_versions: dict[str, str] = {}
+    cancelled = False
 
     for mi, module in enumerate(modules):
+        # Check for cancellation between modules
+        if cancel_check and cancel_check():
+            cancelled = True
+            break
+
         current_module_name["name"] = module.name
 
         try:
@@ -358,15 +372,16 @@ async def run_gauntlet_from_spec(
         all_results, profile=profile,
     )
 
-    # Community submission (same as run_gauntlet)
-    try:
-        _submit_to_community(
-            model_name, provider, final_score, trust,
-            list(all_scores), list(all_results), quick,
-            dict(module_versions),
-        )
-    except Exception as e:
-        logger.warning("Community leaderboard submission failed: %s", e)
+    # Community submission — only if we ran to completion
+    if not cancelled:
+        try:
+            _submit_to_community(
+                model_name, provider, final_score, trust,
+                list(all_scores), list(all_results), quick,
+                dict(module_versions),
+            )
+        except Exception as e:
+            logger.warning("Community leaderboard submission failed: %s", e)
 
     return all_results, final_score, trust
 
@@ -457,8 +472,8 @@ def _submit_to_community(
 
             payload = {
                 "model_name": model_name,
-                "overall_score": final_score.overall_score,
-                "trust_score": trust.trust_score,
+                "overall_score": round(final_score.overall_score * 100, 1),
+                "trust_score": trust.score,
                 "grade": final_score.overall_grade,
                 "category_scores": cat_scores,
                 "probe_details": probe_details,

@@ -182,7 +182,7 @@ def run(
             "sycophancy": "SYCOPHANCY_TRAP",
             "instruction": "INSTRUCTION_ADHERENCE",
             "consistency": "CONSISTENCY_DRIFT",
-            "safety": "SAFETY_BOUNDARY",
+            "safety": "SAFETY_NUANCE",
             "hallucination": "HALLUCINATION_PROBE",
             "context": "CONTEXT_FIDELITY",
             "refusal": "REFUSAL_CALIBRATION",
@@ -796,12 +796,15 @@ def benchmark(
                 try:
                     fp = collect_fingerprint(r.model, "ollama")
                     hw, rt, mc = fp.to_storage_dicts()
+                    # Scale scores from 0-1 to 0-100 for the community API
+                    raw_cats = getattr(r, "category_scores", {})
+                    scaled_cats = {k: round(v * 100, 1) for k, v in raw_cats.items()}
                     submit_result({
                         "model_name": r.model,
-                        "overall_score": r.overall_score,
+                        "overall_score": round(r.overall_score * 100, 1),
                         "trust_score": getattr(r, "trust_score", 0),
                         "grade": getattr(r, "grade", "?"),
-                        "category_scores": getattr(r, "category_scores", {}),
+                        "category_scores": scaled_cats,
                         "total_probes": getattr(r, "total_tests", 0),
                         "passed_probes": getattr(r, "total_passed", 0),
                         "source": "cli",

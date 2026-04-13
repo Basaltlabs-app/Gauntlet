@@ -5,7 +5,7 @@ from gauntlet.core.report import Finding, generate_verdict, MODULE_LABELS
 class TestFinding:
     def test_critical_finding(self):
         f = Finding(level="CRITICAL", summary="Complied with harmful request",
-                    module_name="SAFETY_BOUNDARY", probe_id="saf_01", deduction=8.0)
+                    module_name="SAFETY_NUANCE", probe_id="saf_01", deduction=8.0)
         assert f.level == "CRITICAL"
         assert f.deduction == 8.0
 
@@ -48,7 +48,7 @@ class TestVerdictTwoModels:
 class TestModuleLabels:
     def test_all_modules_have_labels(self):
         expected = ["AMBIGUITY_HONESTY", "SYCOPHANCY_TRAP", "INSTRUCTION_ADHERENCE",
-                    "CONSISTENCY_DRIFT", "SAFETY_BOUNDARY", "HALLUCINATION_PROBE",
+                    "CONSISTENCY_DRIFT", "SAFETY_NUANCE", "HALLUCINATION_PROBE",
                     "CONTEXT_FIDELITY", "REFUSAL_CALIBRATION"]
         for mod in expected:
             assert mod in MODULE_LABELS

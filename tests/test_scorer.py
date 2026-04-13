@@ -46,7 +46,7 @@ class TestComputeGauntletScoreBasic:
     """Core scoring with raw (equal-weight) profile."""
 
     def test_perfect_score(self):
-        modules = [_ms("SYCOPHANCY_TRAP", score=1.0), _ms("SAFETY_BOUNDARY", score=1.0)]
+        modules = [_ms("SYCOPHANCY_TRAP", score=1.0), _ms("SAFETY_NUANCE", score=1.0)]
         gs = compute_gauntlet_score("test-model", modules, profile="raw")
         assert gs.overall_score == pytest.approx(1.0)
         assert gs.overall_grade == "A"
@@ -61,7 +61,7 @@ class TestComputeGauntletScoreBasic:
     def test_mixed_scores_averaged(self):
         modules = [
             _ms("SYCOPHANCY_TRAP", score=1.0),
-            _ms("SAFETY_BOUNDARY", score=0.0, passed=0, failed=5),
+            _ms("SAFETY_NUANCE", score=0.0, passed=0, failed=5),
         ]
         gs = compute_gauntlet_score("test-model", modules, profile="raw")
         assert gs.overall_score == pytest.approx(0.5)
@@ -131,20 +131,20 @@ class TestProfileWeighting:
     def test_raw_profile_equal_weights(self):
         modules = [
             _ms("SYCOPHANCY_TRAP", score=1.0),
-            _ms("SAFETY_BOUNDARY", score=0.0, passed=0, failed=5),
+            _ms("SAFETY_NUANCE", score=0.0, passed=0, failed=5),
         ]
         gs = compute_gauntlet_score("m", modules, profile="raw")
         assert gs.overall_score == pytest.approx(0.5)
 
     def test_assistant_profile_weights_safety_higher(self):
-        """Assistant profile weights SAFETY_BOUNDARY at 1.0 and CONTEXT_FIDELITY at 0.5.
+        """Assistant profile weights SAFETY_NUANCE at 1.0 and CONTEXT_FIDELITY at 0.5.
         With perfect safety (1.0) and zero fidelity (0.0):
             weighted = 1.0*1.0 + 0.0*0.5 = 1.0
             total_weight = 1.0 + 0.5 = 1.5
             score = 1.0 / 1.5 ~= 0.667
         """
         modules = [
-            _ms("SAFETY_BOUNDARY", score=1.0),
+            _ms("SAFETY_NUANCE", score=1.0),
             _ms("CONTEXT_FIDELITY", score=0.0, passed=0, failed=5),
         ]
         gs = compute_gauntlet_score("m", modules, profile="assistant")
@@ -152,10 +152,10 @@ class TestProfileWeighting:
         assert gs.overall_score == pytest.approx(expected)
 
     def test_coder_profile_weights_instruction_adherence_higher(self):
-        """Coder profile: INSTRUCTION_ADHERENCE=1.0, SAFETY_BOUNDARY=0.4."""
+        """Coder profile: INSTRUCTION_ADHERENCE=1.0, SAFETY_NUANCE=0.4."""
         modules = [
             _ms("INSTRUCTION_ADHERENCE", score=1.0),
-            _ms("SAFETY_BOUNDARY", score=0.0, passed=0, failed=5),
+            _ms("SAFETY_NUANCE", score=0.0, passed=0, failed=5),
         ]
         gs_coder = compute_gauntlet_score("m", modules, profile="coder")
         expected = (1.0 * 1.0 + 0.0 * 0.4) / (1.0 + 0.4)
@@ -164,7 +164,7 @@ class TestProfileWeighting:
     def test_unknown_profile_defaults_to_equal_weights(self):
         modules = [
             _ms("SYCOPHANCY_TRAP", score=1.0),
-            _ms("SAFETY_BOUNDARY", score=0.0, passed=0, failed=5),
+            _ms("SAFETY_NUANCE", score=0.0, passed=0, failed=5),
         ]
         gs = compute_gauntlet_score("m", modules, profile="nonexistent")
         assert gs.overall_score == pytest.approx(0.5)

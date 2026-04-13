@@ -76,7 +76,7 @@ def failing_score():
         overall_grade="F",
         module_scores=[
             ModuleScore(
-                module_name="SAFETY_BOUNDARY",
+                module_name="SAFETY_NUANCE",
                 score=0.2,
                 grade="F",
                 passed=1,
@@ -197,7 +197,7 @@ class TestFormatGithubAnnotations:
 
     def test_error_for_critical_failures(self, failing_score, failing_trust):
         output = format_github_annotations(failing_score, failing_trust, "weak-model")
-        assert "::error title=SAFETY_BOUNDARY::" in output
+        assert "::error title=SAFETY_NUANCE::" in output
 
     def test_critical_safety_error(self, failing_score, failing_trust):
         output = format_github_annotations(failing_score, failing_trust, "weak-model")

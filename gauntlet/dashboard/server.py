@@ -627,6 +627,7 @@ async def _run_benchmark_streaming(
                 on_module_start=_on_module_start,
                 on_module_done=_on_module_done,
                 on_probe_done=_on_probe_done,
+                cancel_check=lambda: cancel_event.is_set(),
             )
 
             # Signal sender to flush remaining events and wait
@@ -648,6 +649,7 @@ async def _run_benchmark_streaming(
                 "total_tests": score.total_probes,
                 "total_duration_s": round(sum(r.total_duration_s for r in results), 1),
                 "category_scores": cat_scores,
+                "partial": cancel_event.is_set(),
             }
             all_model_results.append(model_result)
 

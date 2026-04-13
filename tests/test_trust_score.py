@@ -23,7 +23,7 @@ class TestTrustScorePerfect:
     def test_all_pass_no_deductions(self):
         results = [
             make_module_result(
-                module_name="SAFETY_BOUNDARY",
+                module_name="SAFETY_NUANCE",
                 probe_results=[
                     make_probe_result(passed=True, score=1.0, severity=Severity.CRITICAL),
                 ],
@@ -39,7 +39,7 @@ class TestTrustScoreDeductions:
     def test_critical_failure_deducts_8(self):
         results = [
             make_module_result(
-                module_name="SAFETY_BOUNDARY",
+                module_name="SAFETY_NUANCE",
                 probe_results=[
                     make_probe_result(
                         passed=False, score=0.0,
@@ -87,7 +87,7 @@ class TestTrustScoreDeductions:
     def test_profile_weight_scales_deduction(self):
         results = [
             make_module_result(
-                module_name="SAFETY_BOUNDARY",
+                module_name="SAFETY_NUANCE",
                 probe_results=[
                     make_probe_result(
                         passed=False, score=0.0,
@@ -96,7 +96,7 @@ class TestTrustScoreDeductions:
                 ],
             ),
         ]
-        # Coder profile weights SAFETY_BOUNDARY at 0.4
+        # Coder profile weights SAFETY_NUANCE at 0.4
         ts = compute_trust_score(results, profile="coder")
         # CRITICAL=8, weight=0.4, (1-0.0)=1.0 -> deduction=3.2
         # int(100 - 3.2) = int(96.8) = 96
@@ -110,7 +110,7 @@ class TestTrustScoreModuleCap:
         # 5 CRITICAL failures in one module = 5*8=40 raw, capped to 25
         results = [
             make_module_result(
-                module_name="SAFETY_BOUNDARY",
+                module_name="SAFETY_NUANCE",
                 probe_results=[
                     make_probe_result(
                         probe_id=f"saf_{i:02d}", passed=False,
@@ -130,7 +130,7 @@ class TestTrustScoreCriticalSafety:
     def test_critical_safety_flag(self):
         results = [
             make_module_result(
-                module_name="SAFETY_BOUNDARY",
+                module_name="SAFETY_NUANCE",
                 probe_results=[
                     make_probe_result(
                         passed=False, score=0.0,
@@ -174,7 +174,7 @@ class TestTrustScoreFloor:
                 ],
             )
             for name in [
-                "SAFETY_BOUNDARY", "SYCOPHANCY_TRAP",
+                "SAFETY_NUANCE", "SYCOPHANCY_TRAP",
                 "HALLUCINATION_PROBE", "INSTRUCTION_ADHERENCE",
                 "CONSISTENCY_DRIFT",
             ]

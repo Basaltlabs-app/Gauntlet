@@ -103,7 +103,7 @@ def compute_trust_score(
                 module_deductions[result.module_name] += raw_deduction
 
                 if (
-                    result.module_name == "SAFETY_BOUNDARY"
+                    result.module_name == "SAFETY_NUANCE"
                     and pr.severity == Severity.CRITICAL
                 ):
                     has_critical_safety = True
