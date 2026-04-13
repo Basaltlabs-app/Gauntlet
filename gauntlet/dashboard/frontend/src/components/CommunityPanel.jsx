@@ -107,6 +107,13 @@ function useFetch(url, deps = []) {
   }, [url])
 
   useEffect(() => { fetchData() }, [fetchData, ...deps])
+
+  // Auto-refresh every 60 seconds for live community data
+  useEffect(() => {
+    const interval = setInterval(fetchData, 60_000)
+    return () => clearInterval(interval)
+  }, [fetchData])
+
   return { data, loading, error, refetch: fetchData }
 }
 

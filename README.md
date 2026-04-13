@@ -86,14 +86,28 @@ Web-based dashboard with live benchmark progress, scoring breakdowns, model comp
 gauntlet dashboard
 ```
 
-Features:
-- **Unified Test Tab**: one interface for all testing modes. Compare with custom prompts, run Quick Benchmark (~5 min), or Full Benchmark (~30 min). All modes use the same severity-weighted scoring pipeline and contribute to the community dataset.
-- **Live Benchmark Progress**: animated test trail showing each probe as it runs, with pass/fail in real-time
-- **Benchmark History**: persistent results survive page refresh, compare runs over time
-- **Speed Analysis**: tokens/sec, time-to-first-token, total generation time
-- **Quality Radar**: radar chart visualization of quality dimensions
+The dashboard has two testing modes — **Quick Test** for everyday use, and the **Behavioral Suite** for deep analysis. Both feed the community leaderboard.
+
+### Quick Test (⚡ ~5 minutes)
+
+*"Can this model handle real tasks on my hardware?"*
+
+15 probes across 6 domains people actually use AI for: **writing** (draft an email, rewrite for conciseness, write a bug report), **code** (write a function, fix a bug, explain SQL), **reasoning** (multi-step math, scheduling), **summarization** (technical docs for executives, meeting action items), **data analysis** (revenue analysis, SQL queries), and **creative** (product copy, name brainstorming).
+
+Includes hybrid LLM judging (self-judge by default, external API if key is configured) for tasks where regex can't evaluate quality. Detects **regressions** between runs — if a model update degrades performance, you'll know immediately.
+
+### Behavioral Suite (🔬 30-60 minutes)
+
+*"How does this model behave under pressure?"*
+
+214 probes across 17 behavioral modules testing dimensions no other benchmark measures: sycophancy gradient mapping (the exact pressure level where a model abandons a correct answer), instruction decay over 15-turn conversations, temporal coherence across 25 distractor turns, confidence calibration via ECE, anchoring bias, framing effects, prompt injection resistance, and more. All scoring is deterministic — no LLM-as-judge.
+
+### Shared Features
+- **Live Progress**: animated test trail with per-probe pass/fail in real-time
+- **History**: persistent results survive page refresh, compare runs over time
+- **Speed Analysis**: tokens/sec, time-to-first-token, throughput measurement
 - **Trust Rankings**: persistent leaderboard across all comparisons
-- **Community Intelligence**: hardware survey, tier-stratified rankings, quantization degradation curves, and performance prediction, all derived from community submissions
+- **Community Intelligence**: hardware survey, tier-stratified rankings, degradation curves, performance prediction — all derived from community submissions
 
 The dashboard runs locally. Benchmark scores (model name, grade, category scores) are shared with the [public leaderboard](https://basaltlabs.app/gauntlet/leaderboard) to build community rankings. No prompts, outputs, or personal data are transmitted. See [Data & Privacy](#data-and-privacy) for details.
 

@@ -24,6 +24,18 @@ export function useWebSocket(url) {
 
   // Benchmark streaming state
   const [benchmarkState, setBenchmarkState] = useState(null)
+  // Health check streaming state
+  const [healthState, setHealthState] = useState(null)
+  // healthState shape:
+  // {
+  //   status: 'running' | 'complete' | 'error' | 'stopping',
+  //   model: '',
+  //   totalProbes: 0,
+  //   probes: [],               // [{name, category, status, score, duration_s, ...}]
+  //   result: null,             // final health check result
+  //   error: null,
+  // }
+
   // benchmarkState shape:
   // {
   //   status: 'idle' | 'running' | 'complete' | 'stopped',
@@ -249,6 +261,56 @@ export function useWebSocket(url) {
             return { ...prev, status: 'stopping' }
           })
           break
+
+        // ── Health check streaming events ───────────────────────
+        case 'health_start':
+          setHealthState({
+            status: 'running',
+            model: data.model,
+            totalProbes: data.total_probes,
+            probes: [],
+            result: null,
+            error: null,
+          })
+          break
+
+        case 'health_probe_done':
+          setHealthState(prev => {
+            if (!prev) return prev
+            return {
+              ...prev,
+              probes: [...prev.probes, {
+                name: data.name,
+                category: data.category,
+                status: 'done',
+                score: data.score,
+                passed: data.passed,
+                duration_s: data.duration_s,
+                description: data.description,
+              }],
+            }
+          })
+          break
+
+        case 'health_complete':
+          setHealthState(prev => ({
+            ...prev,
+            status: 'complete',
+            result: data.result,
+          }))
+          break
+
+        case 'health_error':
+          setHealthState(prev => ({
+            ...prev,
+            status: 'error',
+            error: data.error,
+          }))
+          break
+
+        case 'health_stopping':
+          setHealthState(prev => prev ? { ...prev, status: 'stopping' } : prev)
+          break
       }
     }
 
@@ -302,6 +364,11 @@ export function useWebSocket(url) {
     setBenchmarkState(null)
   }, [])
 
+  // Reset health check state
+  const resetHealth = useCallback(() => {
+    setHealthState(null)
+  }, [])
+
   return {
     status,
     config,
@@ -314,5 +381,7 @@ export function useWebSocket(url) {
     sendMessage,
     benchmarkState,
     resetBenchmark,
+    healthState,
+    resetHealth,
   }
 }

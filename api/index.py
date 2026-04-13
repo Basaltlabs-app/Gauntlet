@@ -48,6 +48,8 @@ VALID_CATEGORIES = {
     "ANCHORING_BIAS", "PROMPT_INJECTION", "LOGICAL_CONSISTENCY", "FRAMING_EFFECT",
     # Benchmark/compare categories (from scorer)
     "speed", "quality", "responsiveness", "overall",
+    # Health check categories
+    "writing", "code", "reasoning", "summarization", "data_analysis", "creative", "regression_anchor",
 }
 
 # HMAC signing key (shared with CLI, not truly secret but stops casual abuse)
@@ -399,21 +401,27 @@ async def submit_handler(request: Request) -> Response:
             model_size_gb=(mc or {}).get("size_gb", 0),
         )
 
-    record_test_result(
-        model_name=model_name,
-        overall_score=body.get("overall_score", 0),
-        trust_score=body.get("trust_score", 0),
-        grade=body.get("grade", "?"),
-        category_scores=body.get("category_scores", {}),
-        total_probes=body.get("total_probes", 0),
-        passed_probes=body.get("passed_probes", 0),
-        source=body.get("source", "cli"),
-        quick=body.get("quick", False),
-        fingerprint=fingerprint,
-        probe_details=body.get("probe_details"),
-        attestation=body.get("attestation"),
-        hardware_tier=body.get("hardware_tier", ""),
-    )
+    try:
+        record_test_result(
+            model_name=model_name,
+            overall_score=body.get("overall_score", 0),
+            trust_score=body.get("trust_score", 0),
+            grade=body.get("grade", "?"),
+            category_scores=body.get("category_scores", {}),
+            total_probes=body.get("total_probes", 0),
+            passed_probes=body.get("passed_probes", 0),
+            source=body.get("source", "cli"),
+            quick=body.get("quick", False),
+            fingerprint=fingerprint,
+            probe_details=body.get("probe_details"),
+            attestation=body.get("attestation"),
+            hardware_tier=body.get("hardware_tier", ""),
+            suite_type=body.get("attestation", {}).get("suite_type", "full"),
+        )
+    except Exception as e:
+        return JSONResponse(
+            {"status": "ok", "storage_warning": str(e)}, headers=CORS_HEADERS,
+        )
 
     return JSONResponse({"status": "ok"}, headers=CORS_HEADERS)
 

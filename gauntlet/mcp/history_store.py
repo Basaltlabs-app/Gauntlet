@@ -37,8 +37,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("gauntlet.mcp.history")
 
-_SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
-_SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
+_SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip().rstrip("/").rstrip("\\n")
+_SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "").strip().rstrip("\\n")
 
 
 def _headers() -> dict[str, str]:
@@ -72,6 +72,7 @@ def record_test_result(
     probe_details: Optional[dict] = None,
     attestation: Optional[dict] = None,
     hardware_tier: str = "",
+    suite_type: str = "full",
 ) -> None:
     """Record a single model's test result to the history table.
 
@@ -101,6 +102,7 @@ def record_test_result(
             "passed_probes": passed_probes,
             "source": source,
             "quick": quick,
+            "suite_type": suite_type,
         }
 
         # Attach system fingerprint for community filtering
@@ -190,7 +192,7 @@ def _get_filtered_history(
 
     try:
         params: dict = {
-            "select": "model_name,timestamp,overall_score,trust_score,grade,category_scores,total_probes,passed_probes,source,quick,hardware,runtime,model_config,probe_details",
+            "select": "model_name,timestamp,overall_score,trust_score,grade,category_scores,total_probes,passed_probes,source,quick,hardware,runtime,model_config,probe_details,suite_type",
             "order": "timestamp.desc",
             "limit": str(limit),
         }
@@ -291,6 +293,8 @@ def get_aggregated_stats(
                     "name": name,
                     "scores": [],
                     "trust_scores": [],
+                    "quick_test_scores": [],
+                    "behavioral_scores": [],
                     "grades": [],
                     "category_totals": {},
                     "category_counts": {},
@@ -305,8 +309,14 @@ def get_aggregated_stats(
 
             m = models[name]
             m["test_count"] += 1
+            suite = row.get("suite_type", "full")
             if row.get("overall_score") is not None:
                 m["scores"].append(row["overall_score"])
+                # Split by suite type for dual-column display
+                if suite == "health_check":
+                    m["quick_test_scores"].append(row["overall_score"])
+                else:
+                    m["behavioral_scores"].append(row["overall_score"])
             if row.get("trust_score") is not None:
                 m["trust_scores"].append(row["trust_score"])
             if row.get("grade"):
@@ -348,6 +358,8 @@ def get_aggregated_stats(
 
             avg_score = sum(m["scores"]) / len(m["scores"]) if m["scores"] else 0
             avg_trust = sum(m["trust_scores"]) / len(m["trust_scores"]) if m["trust_scores"] else 0
+            avg_quick = sum(m["quick_test_scores"]) / len(m["quick_test_scores"]) if m["quick_test_scores"] else None
+            avg_behavioral = sum(m["behavioral_scores"]) / len(m["behavioral_scores"]) if m["behavioral_scores"] else None
 
             # Category averages
             cat_avgs = {}
@@ -359,6 +371,10 @@ def get_aggregated_stats(
                 "name": name,
                 "avg_score": round(avg_score, 1),
                 "avg_trust": round(avg_trust, 1),
+                "quick_test_score": round(avg_quick, 1) if avg_quick is not None else None,
+                "behavioral_score": round(avg_behavioral, 1) if avg_behavioral is not None else None,
+                "quick_test_count": len(m["quick_test_scores"]),
+                "behavioral_count": len(m["behavioral_scores"]),
                 "latest_grade": m["grades"][0] if m["grades"] else "?",
                 "test_count": m["test_count"],
                 "category_averages": cat_avgs,

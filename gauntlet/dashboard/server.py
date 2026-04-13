@@ -404,10 +404,29 @@ async def get_model_history(model: str, limit: int = 20):
 
 
 # ---------------------------------------------------------------------------
+# Health check REST endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/health-check/history/{model}")
+async def health_history(model: str):
+    from gauntlet.core.benchmark_history import get_health_history
+    return {"history": get_health_history(model)}
+
+
+@app.get("/api/health-check/latest/{model}")
+async def health_latest(model: str):
+    from gauntlet.core.benchmark_history import get_latest_health
+    result = get_latest_health(model)
+    return result if result else {"error": "No health check history"}
+
+
+# ---------------------------------------------------------------------------
 # Benchmark streaming state
 # ---------------------------------------------------------------------------
 _benchmark_cancel: Optional[asyncio.Event] = None
 _benchmark_task: Optional[asyncio.Task] = None
+_health_cancel: Optional[asyncio.Event] = None
+_health_task: Optional[asyncio.Task] = None
 
 
 @app.post("/api/benchmark/stop")
@@ -710,6 +729,80 @@ async def _run_benchmark_streaming(
     await ws.send_json({"type": "leaderboard", "data": lb.to_dict()})
 
 
+async def _run_health_check_streaming(
+    ws: WebSocket, model: str, cancel_event: asyncio.Event
+):
+    """Run health check with probe-level progress streamed over WebSocket."""
+    from gauntlet.core.health_runner import run_health_check
+
+    await ws.send_json({
+        "type": "health_start",
+        "model": model,
+        "total_probes": 15,
+    })
+
+    event_queue: asyncio.Queue = asyncio.Queue()
+    sender_done = asyncio.Event()
+
+    # Build probe metadata map for enriching events with category/name
+    from gauntlet.core.modules.health_check import HealthCheck as _HC
+    _hc_probe_list = _HC().build_probes()
+
+    def _on_probe_done(probe_idx, total, probe_name, passed):
+        # probe_idx is 1-based from base.py run()
+        category = "unknown"
+        display_name = probe_name
+        if 0 < probe_idx <= len(_hc_probe_list):
+            p = _hc_probe_list[probe_idx - 1]
+            category = p.meta.get("category", "unknown")
+            display_name = p.name
+        event_queue.put_nowait({
+            "type": "health_probe_done",
+            "model": model,
+            "name": display_name,
+            "category": category,
+            "probe_index": probe_idx,
+            "total_probes": total,
+            "passed": passed,
+        })
+
+    async def _drain():
+        while not sender_done.is_set() or not event_queue.empty():
+            try:
+                evt = await asyncio.wait_for(event_queue.get(), timeout=0.5)
+                await ws.send_json(evt)
+            except asyncio.TimeoutError:
+                continue
+            except Exception:
+                break
+
+    sender_task = asyncio.create_task(_drain())
+
+    try:
+        result = await run_health_check(
+            model,
+            on_probe_done=_on_probe_done,
+            cancel_check=lambda: cancel_event.is_set(),
+        )
+
+        sender_done.set()
+        await sender_task
+
+        await ws.send_json({
+            "type": "health_complete",
+            "model": model,
+            "result": result.to_dict(),
+        })
+    except Exception as e:
+        sender_done.set()
+        await sender_task
+        await ws.send_json({
+            "type": "health_error",
+            "model": model,
+            "error": str(e),
+        })
+
+
 async def _ws_command_loop(ws: WebSocket):
     """Interactive command loop — listens for client messages.
 
@@ -718,6 +811,7 @@ async def _ws_command_loop(ws: WebSocket):
         {"action": "stop_benchmark"}
     """
     global _benchmark_cancel, _benchmark_task
+    global _health_cancel, _health_task
 
     while True:
         try:
@@ -752,6 +846,30 @@ async def _ws_command_loop(ws: WebSocket):
                     _benchmark_cancel.set()
                     await ws.send_json({"type": "benchmark_stopping"})
 
+            elif action == "start_health_check":
+                model = msg.get("model", "")
+                if not model:
+                    await ws.send_json({"type": "error", "message": "No model specified"})
+                    continue
+                # Cancel any previous health check
+                if _health_cancel:
+                    _health_cancel.set()
+                if _health_task and not _health_task.done():
+                    _health_task.cancel()
+                    try:
+                        await _health_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                _health_cancel = asyncio.Event()
+                _health_task = asyncio.create_task(
+                    _run_health_check_streaming(ws, model, _health_cancel)
+                )
+
+            elif action == "stop_health_check":
+                if _health_cancel:
+                    _health_cancel.set()
+                    await ws.send_json({"type": "health_stopping"})
+
         except asyncio.TimeoutError:
             try:
                 await ws.send_json({"type": "ping"})
@@ -764,9 +882,11 @@ async def _ws_command_loop(ws: WebSocket):
         except Exception:
             break
 
-    # Clean up benchmark on disconnect
+    # Clean up benchmark and health check on disconnect
     if _benchmark_cancel:
         _benchmark_cancel.set()
+    if _health_cancel:
+        _health_cancel.set()
 
 
 @app.websocket("/ws")
@@ -1089,17 +1209,8 @@ async def start_server(
 
     _notify_event(f"Server starting on http://127.0.0.1:{port}")
 
-    # Open browser after a short delay
-    async def _open_browser():
-        await asyncio.sleep(1)
-        webbrowser.open(f"http://127.0.0.1:{port}")
-        _notify_event("Browser opened")
-
     try:
-        await asyncio.gather(
-            server.serve(),
-            _open_browser(),
-        )
+        await server.serve()
     except (KeyboardInterrupt, SystemExit):
         pass  # Clean exit, uvicorn handles socket release
     finally:

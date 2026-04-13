@@ -137,3 +137,71 @@ def get_model_benchmark_history(model: str, limit: int = 20) -> list[dict]:
             continue
 
     return history
+
+
+# ---------------------------------------------------------------------------
+# Health check storage (separate from benchmark history)
+# ---------------------------------------------------------------------------
+
+GAUNTLET_DIR = ensure_gauntlet_dir()
+HEALTH_DIR = GAUNTLET_DIR / "health"
+
+
+def _sanitize_model_name(model: str) -> str:
+    """Sanitize model name for filesystem use."""
+    return model.replace(":", "_").replace("/", "_").replace("\\", "_")
+
+
+def save_health_check(result: dict, model: str) -> str:
+    """Save a health check result to disk.
+
+    Stores in ~/.gauntlet/health/{model_name}/{timestamp}.json
+    Returns the run_id (timestamp string).
+    """
+    safe_name = _sanitize_model_name(model)
+    model_dir = HEALTH_DIR / safe_name
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    now = datetime.now(timezone.utc)
+    run_id = now.strftime("%Y%m%d_%H%M%S")
+
+    record = {
+        "run_id": run_id,
+        "timestamp": now.isoformat(),
+        "model": model,
+        **result,
+    }
+
+    path = model_dir / f"{run_id}.json"
+    path.write_text(json.dumps(record, indent=2))
+    return run_id
+
+
+def get_health_history(model: str, limit: int = 20) -> list[dict]:
+    """Load recent health check results for a model.
+
+    Returns list of dicts sorted by timestamp descending.
+    """
+    safe_name = _sanitize_model_name(model)
+    model_dir = HEALTH_DIR / safe_name
+
+    if not model_dir.exists():
+        return []
+
+    files = sorted(model_dir.glob("*.json"), reverse=True)
+    history = []
+
+    for f in files[:limit]:
+        try:
+            data = json.loads(f.read_text())
+            history.append(data)
+        except (json.JSONDecodeError, KeyError):
+            continue
+
+    return history
+
+
+def get_latest_health(model: str) -> dict | None:
+    """Load the most recent health check result for a model."""
+    history = get_health_history(model, limit=1)
+    return history[0] if history else None

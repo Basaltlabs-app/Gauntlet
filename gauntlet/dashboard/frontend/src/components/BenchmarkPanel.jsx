@@ -318,9 +318,9 @@ export default function BenchmarkPanel({ selectedModels, sendMessage, benchmarkS
       {/* Page header */}
       <section className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h1 className="text-4xl md:text-5xl font-display font-bold tracking-tighter gradient-text-hero mb-2">Benchmark</h1>
-          <p className="text-xs uppercase tracking-[0.15em] text-[var(--text-muted)] font-display font-bold">
-            17 behavioral modules · {quick ? 'reduced' : 'full'} probe set · programmatic verification
+          <h1 className="text-4xl md:text-5xl font-display font-bold tracking-tighter gradient-text-hero mb-2">Behavioral Suite</h1>
+          <p className="text-xs tracking-[0.1em] text-[var(--text-muted)] font-display max-w-lg">
+            Deep behavioral analysis — 17 modules, 214 probes testing sycophancy resistance, instruction decay, hallucination detection, pressure thresholds, and more. For research and production deployment decisions.
           </p>
         </div>
         <div className="flex gap-3 items-center">

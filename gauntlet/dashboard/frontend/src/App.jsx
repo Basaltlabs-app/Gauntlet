@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Layers, Gauge, Timer, Target, Network, ListOrdered, BookOpen, Globe, FlaskConical } from 'lucide-react'
+import { Layers, Gauge, Timer, Target, Network, ListOrdered, BookOpen, Globe, FlaskConical, Zap } from 'lucide-react'
 import { useWebSocket } from './hooks/useWebSocket'
 import { pageTransition, getModelColor } from './lib/animations'
 import Arena from './components/Arena'
@@ -13,11 +13,13 @@ import ControlPanel from './components/ControlPanel'
 import BenchmarkPanel from './components/BenchmarkPanel'
 import HelpPanel from './components/HelpPanel'
 import CommunityPanel from './components/CommunityPanel'
+import HealthCheckPanel from './components/HealthCheckPanel'
 
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`
 
 const TABS = [
-  { id: 'test', label: 'Test', icon: FlaskConical },
+  { id: 'health', label: 'Quick Test', icon: Zap },
+  { id: 'test', label: 'Behavioral', icon: FlaskConical },
   { id: 'speed', label: 'Speed', icon: Timer },
   { id: 'quality', label: 'Quality', icon: Target },
   { id: 'graph', label: 'Graph', icon: Network },
@@ -36,8 +38,8 @@ function StatusDot({ status }) {
 }
 
 export default function App() {
-  const { status, config, modelStates, result, leaderboard, isJudging, reconnect, sendMessage, benchmarkState, resetBenchmark } = useWebSocket(WS_URL)
-  const [activeTab, setActiveTab] = useState('test')
+  const { status, config, modelStates, result, leaderboard, isJudging, reconnect, sendMessage, benchmarkState, resetBenchmark, healthState, resetHealth } = useWebSocket(WS_URL)
+  const [activeTab, setActiveTab] = useState('health')
   const [selectedModels, setSelectedModels] = useState([])
 
   const models = config?.models || []
@@ -219,6 +221,14 @@ export default function App() {
               <Leaderboard data={leaderboard} result={result} />
             )}
 
+            {activeTab === 'health' && (
+              <HealthCheckPanel
+                sendMessage={sendMessage}
+                healthState={healthState}
+                resetHealth={resetHealth}
+              />
+            )}
+
             {activeTab === 'community' && (
               <CommunityPanel />
             )}
@@ -241,7 +251,7 @@ export default function App() {
             </span>
             <a href="https://basaltlabs.app" target="_blank" rel="noopener noreferrer"
                className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--accent)] hover:opacity-80 transition-opacity">
-              Basalt Labs
+              Basaltlabs
             </a>
           </div>
           <p className="text-[11px] font-mono text-[var(--text-muted)] opacity-50">
