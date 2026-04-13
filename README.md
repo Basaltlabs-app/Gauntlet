@@ -1,21 +1,21 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/gauntlet-v1.4.3-b08d6e?style=for-the-badge" alt="version" />
+  <img src="https://img.shields.io/badge/gauntlet-v1.5.1-b08d6e?style=for-the-badge" alt="version" />
 </p>
 
 <h1 align="center">Gauntlet</h1>
 
 <p align="center">
-  <strong>Community-Driven Behavioral Research Platform for Large Language Models</strong><br>
-  <sub>Every test from every user on every hardware configuration feeds a shared, open dataset.</sub>
+  <strong>Can this AI run on your computer? How well does it actually perform?</strong><br>
+  <sub>Community-powered answers. Every test from every user on every hardware configuration feeds one shared dataset.</sub>
 </p>
 
 <p align="center">
-  <a href="#tui">TUI</a> &bull;
-  <a href="#dashboard">Dashboard</a> &bull;
+  <a href="#quick-test">Quick Test</a> &bull;
+  <a href="#behavioral-suite">Behavioral Suite</a> &bull;
   <a href="#community-leaderboard">Leaderboard</a> &bull;
+  <a href="#dashboard">Dashboard</a> &bull;
   <a href="#behavioral-taxonomy">Taxonomy</a> &bull;
   <a href="#scoring-methodology">Scoring</a> &bull;
-  <a href="#evaluation-profiles">Profiles</a> &bull;
   <a href="#mcp-server">MCP</a> &bull;
   <a href="#cicd-integration">CI/CD</a> &bull;
   <a href="#cli-reference">CLI</a>
@@ -24,7 +24,7 @@
 <p align="center">
   <img src="https://img.shields.io/pypi/v/gauntlet-cli?color=b08d6e" alt="PyPI" />
   <img src="https://img.shields.io/github/license/Basaltlabs-app/Gauntlet" alt="License" />
-  <img src="https://img.shields.io/badge/probes-214-c4a05a" alt="214 Probes" />
+  <img src="https://img.shields.io/badge/probes-229-c4a05a" alt="229 Probes" />
   <img src="https://img.shields.io/badge/scoring-deterministic-c4a05a" alt="Deterministic" />
 </p>
 
@@ -34,30 +34,69 @@
 
 ---
 
-## Abstract
+## The Problem
 
-Existing LLM benchmarks produce results from a single lab, on a single hardware configuration, at a single point in time. They tell you what a model knows (MMLU, HumanEval, SWE-bench) but not how it behaves. And because results come from one source, they cannot answer the question that matters most: **"How does this model perform on hardware like mine, for tasks like mine?"**
+You download a 4B model to run on your laptop. The model card says "79% on MMLU." But MMLU was scored in a lab on an H100 with FP16 weights. You're running Q4 quantization on 8GB of RAM. **Those numbers don't apply to you.**
 
-Gauntlet is a community-driven behavioral research platform. Every user who runs a test contributes their results, including anonymous hardware metadata (GPU class, RAM, quantization level, OS), to a shared open dataset. The more people test, the more representative the data becomes. Instead of trusting one lab's numbers, you get aggregated behavioral profiles across hundreds of users, diverse hardware, and different quantization levels.
+You have no way to know:
+- Will this model actually work on my machine, or will it crawl at 0.2 tokens/sec?
+- Does quantization from FP16 to Q4 break the model's ability to follow instructions?
+- Can I trust it for the tasks I actually need — writing, code, summarization — or just trivia?
+- If I update the model next week, will it get worse?
 
-**What it measures** (16 dimensions no other benchmark tests):
+Every existing benchmark (MMLU, HumanEval, SWE-bench, MT-Bench) produces one set of scores from one lab on one hardware configuration. They measure what a model **knows**, not how it **behaves** — and they can't tell you anything about how it performs on hardware like yours.
 
-- **Sycophancy gradient mapping**: the exact social pressure level at which a model abandons a correct answer
-- **Instruction decay**: how many conversation turns before system prompt constraints degrade
-- **Temporal coherence**: fact retention across 20-turn conversations with interleaved distractors
-- **Confidence calibration**: correlation between stated confidence and actual accuracy (ECE)
-- **Pressure resistance, hallucination detection, safety boundaries, refusal calibration**, and 8 more
+## What Gauntlet Does
 
-**How it scores**: TrustScore uses fully deterministic verification (regex, pattern matching, AST parsing). The compare feature uses lightweight LLM evaluation for freeform prompt quality assessment. 18 dynamic probe factories randomize values each run to prevent memorization.
+Gauntlet is a community-powered platform that answers the question: **"How does this model perform on hardware like mine, for tasks like mine?"**
 
-**What makes it different**: Gauntlet is not a tool. It is a platform. Results from CLI, TUI, and dashboard feed a community dataset with hardware metadata. Every submission is classified into a hardware tier (Edge, Consumer Low/Mid/High, Cloud), scored with confidence intervals, and used to predict how models perform on hardware configurations they have not been tested on.
+Every user who runs a test — whether a 5-minute Quick Test or the full Behavioral Suite — contributes their scores and anonymous hardware fingerprint (GPU class, RAM, quantization, OS) to a shared open dataset. The more people test, the richer the data becomes. Instead of trusting one lab's numbers, you get real-world performance data across hundreds of hardware configurations.
+
+**Two levels of testing, one shared dataset:**
+
+### Quick Test — "Can this AI handle my tasks?" (~5 min)
+
+15 probes testing what people actually use AI for: writing professional emails, fixing code bugs, multi-step reasoning, summarizing documents, analyzing data, and creative work. Runs in about 5 minutes on any hardware. Detects regressions between runs — if a model update makes it worse, you'll know.
+
+This is the entry point. Anyone can run it. It takes minutes, not hours. Results feed the community leaderboard immediately.
+
+### Behavioral Suite — "How does this model behave under pressure?" (30-60 min)
+
+214 probes across 17 behavioral modules measuring dimensions no other benchmark tests:
+
+- **Sycophancy gradient**: the exact social pressure level where a model abandons a correct answer (5-level escalation from gentle doubt to hostile ultimatum)
+- **Instruction decay**: how many conversation turns before system prompt constraints degrade (15-turn endurance tests)
+- **Temporal coherence**: fact retention across 25 distractor turns in multi-turn conversations
+- **Confidence calibration**: correlation between a model's stated confidence and its actual accuracy (ECE metric)
+- **Safety nuance**: does the model over-refuse harmless questions? Does it comply with harmful ones? Context-dependent harm detection with matched pairs (same information, different intent)
+- **Anchoring bias, framing effects, prompt injection resistance, hallucination detection**, and 8 more
+
+All behavioral scoring is fully deterministic — regex, pattern matching, structural verification. No LLM judges another LLM. 18 dynamic probe factories randomize values per run to prevent memorization.
+
+This is the research-grade suite. It takes longer, but produces the deep behavioral profiles that matter for production deployment decisions and academic analysis.
+
+### The Community Dataset
+
+Both test types feed the same community leaderboard. Every submission includes anonymous hardware metadata:
+
+| Collected | Not Collected |
+|---|---|
+| GPU class (Apple Silicon, NVIDIA, AMD) | User identity or IP |
+| RAM (8GB, 16GB, 32GB...) | Prompts or model outputs |
+| Quantization (Q4, Q8, FP16) | API keys or credentials |
+| OS, CPU architecture | File paths or hostnames |
+| Model name, family, parameter size | Running processes or apps |
+
+Submissions are classified into hardware tiers (Edge, Consumer Low/Mid/High, Cloud), scored with confidence intervals, and used to predict how models will perform on hardware configurations that haven't been directly tested yet.
+
+The query no other benchmark can answer: *"How does qwen3.5:4b perform on Apple Silicon with Q4 quantization?"* Gauntlet can — if someone on similar hardware has run it.
 
 ```bash
 pip install gauntlet-cli
 gauntlet
 ```
 
-**[Community Leaderboard](https://basaltlabs.app/gauntlet/leaderboard)**: live rankings, filterable by GPU class, quantization, provider, and OS. You don't need to run tests yourself if someone on similar hardware already has.
+**[Community Leaderboard](https://basaltlabs.app/gauntlet/leaderboard)** — live rankings with Quick Test and Behavioral scores side by side, filterable by GPU, quantization, provider, and OS.
 
 ---
 
@@ -88,15 +127,15 @@ gauntlet dashboard
 
 The dashboard has two testing modes — **Quick Test** for everyday use, and the **Behavioral Suite** for deep analysis. Both feed the community leaderboard.
 
-### Quick Test (⚡ ~5 minutes)
+### Quick Test (~5 minutes)
 
 *"Can this model handle real tasks on my hardware?"*
 
 15 probes across 6 domains people actually use AI for: **writing** (draft an email, rewrite for conciseness, write a bug report), **code** (write a function, fix a bug, explain SQL), **reasoning** (multi-step math, scheduling), **summarization** (technical docs for executives, meeting action items), **data analysis** (revenue analysis, SQL queries), and **creative** (product copy, name brainstorming).
 
-Includes hybrid LLM judging (self-judge by default, external API if key is configured) for tasks where regex can't evaluate quality. Detects **regressions** between runs — if a model update degrades performance, you'll know immediately.
+Uses deterministic verification by default. When an external API key is configured (OpenAI, Anthropic, or Google), an independent LLM judge scores writing and creative quality — the model being tested never judges itself. Detects **regressions** between runs — if a model update degrades performance, you'll know immediately.
 
-### Behavioral Suite (🔬 30-60 minutes)
+### Behavioral Suite (30-60 minutes)
 
 *"How does this model behave under pressure?"*
 
