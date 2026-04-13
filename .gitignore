@@ -41,3 +41,5 @@ _basaltlabs/
 # HuggingFace benchmark files (uploaded separately)
 huggingface-benchmark/
 .env.vercel.local
+_basaltlabs
+.env.vercel.local
