@@ -14,6 +14,7 @@
   <a href="#behavioral-suite">Behavioral Suite</a> &bull;
   <a href="#community-leaderboard">Leaderboard</a> &bull;
   <a href="#dashboard">Dashboard</a> &bull;
+  <a href="#llamacpp">llama.cpp</a> &bull;
   <a href="#behavioral-taxonomy">Taxonomy</a> &bull;
   <a href="#scoring-methodology">Scoring</a> &bull;
   <a href="#mcp-server">MCP</a> &bull;
