@@ -71,7 +71,7 @@ This is the entry point. Anyone can run it. It takes minutes, not hours. Results
 - **Safety nuance**: does the model over-refuse harmless questions? Does it comply with harmful ones? Context-dependent harm detection with matched pairs (same information, different intent)
 - **Anchoring bias, framing effects, prompt injection resistance, hallucination detection**, and 8 more
 
-All behavioral scoring is fully deterministic - regex, pattern matching, structural verification. No LLM judges another LLM. 18 dynamic probe factories randomize values per run to prevent memorization.
+All Behavioral Suite scoring is fully deterministic - regex, pattern matching, structural verification. No LLM judges another LLM in behavioral probes. The Quick Test uses an external LLM judge (when an API key is available) for writing and creative quality - the model being tested never evaluates itself. 18 dynamic probe factories randomize values per run to prevent memorization.
 
 This is the research-grade suite. It takes longer, but produces the deep behavioral profiles that matter for production deployment decisions and academic analysis.
 
@@ -139,7 +139,7 @@ Uses deterministic verification by default. When an external API key is configur
 
 *"How does this model behave under pressure?"*
 
-214 probes across 17 behavioral modules testing dimensions no other benchmark measures: sycophancy gradient mapping (the exact pressure level where a model abandons a correct answer), instruction decay over 15-turn conversations, temporal coherence across 25 distractor turns, confidence calibration via ECE, anchoring bias, framing effects, prompt injection resistance, and more. All scoring is deterministic - no LLM-as-judge.
+214 probes across 17 behavioral modules testing dimensions no other benchmark measures: sycophancy gradient mapping (the exact pressure level where a model abandons a correct answer), instruction decay over 15-turn conversations, temporal coherence across 25 distractor turns, confidence calibration via ECE, anchoring bias, framing effects, prompt injection resistance, and more. All Behavioral Suite scoring is deterministic. No LLM-as-judge for behavioral probes.
 
 ### Shared Features
 - **Live Progress**: animated test trail with per-probe pass/fail in real-time
@@ -628,7 +628,7 @@ Gauntlet addresses limitations in existing evaluation frameworks:
 | TrustLLM (ICML 2024) | Trustworthiness (6 dims) | Mixed (LLM + auto) | No | Static dataset |
 | **Gauntlet** | Behavioral reliability (16 dims) | Deterministic + lightweight LLM (compare only) | Yes (up to 25 turns) | 18 dynamic factories |
 
-Key differentiators: (1) TrustScore uses fully deterministic verification (no LLM-as-judge for behavioral probes), while the compare feature uses lightweight LLM evaluation for freeform quality assessment; (2) multi-turn behavioral protocols (sycophancy gradient, temporal coherence, instruction decay); (3) dynamic probe factories preventing benchmark contamination through memorization; (4) novel evaluation dimensions (confidence calibration via ECE, instruction decay rate, pressure threshold mapping); (5) community-aggregated results with hardware metadata, enabling filterable cross-hardware comparison that no single-lab benchmark can provide; (6) hardware tier classification with statistical rigor (confidence intervals, outlier detection) and collaborative filtering for performance prediction across untested configurations; (7) certification program (Gold/Silver/Bronze) providing standardized trust signals for model selection.
+Key differentiators: (1) TrustScore uses fully deterministic verification for all 214 behavioral probes (no LLM-as-judge). The Quick Test uses an external LLM judge for writing quality when an API key is available. The compare feature uses lightweight LLM evaluation for freeform prompts; (2) multi-turn behavioral protocols (sycophancy gradient, temporal coherence, instruction decay); (3) dynamic probe factories preventing benchmark contamination through memorization; (4) novel evaluation dimensions (confidence calibration via ECE, instruction decay rate, pressure threshold mapping); (5) community-aggregated results with hardware metadata, enabling filterable cross-hardware comparison that no single-lab benchmark can provide; (6) hardware tier classification with statistical rigor (confidence intervals, outlier detection) and collaborative filtering for performance prediction across untested configurations; (7) certification program (Gold/Silver/Bronze) providing standardized trust signals for model selection.
 
 ---
 
