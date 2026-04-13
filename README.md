@@ -239,51 +239,15 @@ See [Data and Privacy](#data-and-privacy) for exactly what is and is not shared.
 
 ---
 
-## Domain-Aware Comparative Evaluation
+## Model Comparison
 
-`gauntlet compare` classifies the input prompt into a task domain and evaluates model outputs against domain-specific criteria rather than generic quality dimensions.
+Compare two models side-by-side on any prompt. Gauntlet detects the task domain (database, frontend, DevOps, etc.) and evaluates each model's output with domain-appropriate criteria.
 
 ```bash
 gauntlet compare gemma4:e2b qwen3.5:4b "build a CRM with Supabase auth and row-level security"
 ```
 
-```
-Detected: database task  (confidence: 36%, signals: supabase, postgres, rls, sql)
-
-┌─────────────────── Quality Breakdown ───────────────────┐
-│ Model          Schema Design  Security  Query  API Acc. │
-│ gemma4:e2b          9            8        8       9     │
-│ qwen3.5:4b          6            4        7       3     │
-└─────────────────────────────────────────────────────────┘
-
-  qwen3.5:4b  Issues: hallucinated supabase.auth.admin method; missing RLS on users table
-
-┌─────────────────────── Recommendation ──────────────────────┐
-│ gemma4:e2b won for this database task. Scored well on       │
-│ Schema Design: 9/10, API Accuracy: 9/10, Security: 8/10.   │
-│ No domain-specific issues detected. qwen3.5:4b: hallucinated│
-│ supabase.auth.admin method; missing RLS on users table.     │
-│ On your hardware, gemma4:e2b also ran 1.4x faster           │
-│ (45.2 vs 32.1 tok/s).                                       │
-└──────────────────────────────────────────────────────────────┘
-```
-
-### Supported Domains
-
-| Domain | Evaluation Criteria |
-|---|---|
-| **Database** | Schema design, RLS policies, query correctness, API accuracy |
-| **Auth and Security** | Auth flows, token handling, CSRF protection, edge cases |
-| **Google Apps Script** | API usage, quota awareness, trigger patterns, error handling |
-| **Frontend** | Component design, styling, interactivity, framework best practices |
-| **Backend API** | API design, input validation, security middleware, architecture |
-| **DevOps** | Configuration correctness, pipeline design, secrets management, reliability |
-| **Data Analysis** | Data handling, analysis logic, visualization, code efficiency |
-| **Writing and Content** | Structure, tone, substance, engagement |
-
-Each domain applies **tuned composite score weights**. Database tasks weight quality at 70% (an incorrect RLS policy carries greater risk than latency). Data analysis weights speed at 35% (iterative workflows benefit from faster generation). Unclassified prompts use the default 30/50/20 split (speed/quality/responsiveness).
-
-Classification uses **deterministic keyword matching**: no LLM calls, instant, reproducible.
+The comparison uses a lightweight LLM judge to evaluate output quality, combined with speed and responsiveness measurements. Results show which model won and why, with domain-specific scoring (e.g., schema design and security for database tasks, component design for frontend tasks). Supports 8 task domains: Database, Auth/Security, Google Apps Script, Frontend, Backend API, DevOps, Data Analysis, and Writing.
 
 ---
 
