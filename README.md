@@ -41,26 +41,26 @@ You download a 4B model to run on your laptop. The model card says "79% on MMLU.
 You have no way to know:
 - Will this model actually work on my machine, or will it crawl at 0.2 tokens/sec?
 - Does quantization from FP16 to Q4 break the model's ability to follow instructions?
-- Can I trust it for the tasks I actually need — writing, code, summarization — or just trivia?
+- Can I trust it for the tasks I actually need - writing, code, summarization - or just trivia?
 - If I update the model next week, will it get worse?
 
-Every existing benchmark (MMLU, HumanEval, SWE-bench, MT-Bench) produces one set of scores from one lab on one hardware configuration. They measure what a model **knows**, not how it **behaves** — and they can't tell you anything about how it performs on hardware like yours.
+Every existing benchmark (MMLU, HumanEval, SWE-bench, MT-Bench) produces one set of scores from one lab on one hardware configuration. They measure what a model **knows**, not how it **behaves** - and they can't tell you anything about how it performs on hardware like yours.
 
 ## What Gauntlet Does
 
 Gauntlet is a community-powered platform that answers the question: **"How does this model perform on hardware like mine, for tasks like mine?"**
 
-Every user who runs a test — whether a 5-minute Quick Test or the full Behavioral Suite — contributes their scores and anonymous hardware fingerprint (GPU class, RAM, quantization, OS) to a shared open dataset. The more people test, the richer the data becomes. Instead of trusting one lab's numbers, you get real-world performance data across hundreds of hardware configurations.
+Every user who runs a test - whether a 5-minute Quick Test or the full Behavioral Suite - contributes their scores and anonymous hardware fingerprint (GPU class, RAM, quantization, OS) to a shared open dataset. The more people test, the richer the data becomes. Instead of trusting one lab's numbers, you get real-world performance data across hundreds of hardware configurations.
 
 **Two levels of testing, one shared dataset:**
 
-### Quick Test — "Can this AI handle my tasks?" (~5 min)
+### Quick Test - "Can this AI handle my tasks?" (~5 min)
 
-15 probes testing what people actually use AI for: writing professional emails, fixing code bugs, multi-step reasoning, summarizing documents, analyzing data, and creative work. Runs in about 5 minutes on any hardware. Detects regressions between runs — if a model update makes it worse, you'll know.
+15 probes testing what people actually use AI for: writing professional emails, fixing code bugs, multi-step reasoning, summarizing documents, analyzing data, and creative work. Runs in about 5 minutes on any hardware. Detects regressions between runs - if a model update makes it worse, you'll know.
 
 This is the entry point. Anyone can run it. It takes minutes, not hours. Results feed the community leaderboard immediately.
 
-### Behavioral Suite — "How does this model behave under pressure?" (30-60 min)
+### Behavioral Suite - "How does this model behave under pressure?" (30-60 min)
 
 214 probes across 17 behavioral modules measuring dimensions no other benchmark tests:
 
@@ -71,7 +71,7 @@ This is the entry point. Anyone can run it. It takes minutes, not hours. Results
 - **Safety nuance**: does the model over-refuse harmless questions? Does it comply with harmful ones? Context-dependent harm detection with matched pairs (same information, different intent)
 - **Anchoring bias, framing effects, prompt injection resistance, hallucination detection**, and 8 more
 
-All behavioral scoring is fully deterministic — regex, pattern matching, structural verification. No LLM judges another LLM. 18 dynamic probe factories randomize values per run to prevent memorization.
+All behavioral scoring is fully deterministic - regex, pattern matching, structural verification. No LLM judges another LLM. 18 dynamic probe factories randomize values per run to prevent memorization.
 
 This is the research-grade suite. It takes longer, but produces the deep behavioral profiles that matter for production deployment decisions and academic analysis.
 
@@ -89,14 +89,14 @@ Both test types feed the same community leaderboard. Every submission includes a
 
 Submissions are classified into hardware tiers (Edge, Consumer Low/Mid/High, Cloud), scored with confidence intervals, and used to predict how models will perform on hardware configurations that haven't been directly tested yet.
 
-The query no other benchmark can answer: *"How does qwen3.5:4b perform on Apple Silicon with Q4 quantization?"* Gauntlet can — if someone on similar hardware has run it.
+The query no other benchmark can answer: *"How does qwen3.5:4b perform on Apple Silicon with Q4 quantization?"* Gauntlet can - if someone on similar hardware has run it.
 
 ```bash
 pip install gauntlet-cli
 gauntlet
 ```
 
-**[Community Leaderboard](https://basaltlabs.app/gauntlet/leaderboard)** — live rankings with Quick Test and Behavioral scores side by side, filterable by GPU, quantization, provider, and OS.
+**[Community Leaderboard](https://basaltlabs.app/gauntlet/leaderboard)** - live rankings with Quick Test and Behavioral scores side by side, filterable by GPU, quantization, provider, and OS.
 
 ---
 
@@ -125,7 +125,7 @@ Web-based dashboard with live benchmark progress, scoring breakdowns, model comp
 gauntlet dashboard
 ```
 
-The dashboard has two testing modes — **Quick Test** for everyday use, and the **Behavioral Suite** for deep analysis. Both feed the community leaderboard.
+The dashboard has two testing modes - **Quick Test** for everyday use, and the **Behavioral Suite** for deep analysis. Both feed the community leaderboard.
 
 ### Quick Test (~5 minutes)
 
@@ -133,20 +133,20 @@ The dashboard has two testing modes — **Quick Test** for everyday use, and the
 
 15 probes across 6 domains people actually use AI for: **writing** (draft an email, rewrite for conciseness, write a bug report), **code** (write a function, fix a bug, explain SQL), **reasoning** (multi-step math, scheduling), **summarization** (technical docs for executives, meeting action items), **data analysis** (revenue analysis, SQL queries), and **creative** (product copy, name brainstorming).
 
-Uses deterministic verification by default. When an external API key is configured (OpenAI, Anthropic, or Google), an independent LLM judge scores writing and creative quality — the model being tested never judges itself. Detects **regressions** between runs — if a model update degrades performance, you'll know immediately.
+Uses deterministic verification by default. When an external API key is configured (OpenAI, Anthropic, or Google), an independent LLM judge scores writing and creative quality - the model being tested never judges itself. Detects **regressions** between runs - if a model update degrades performance, you'll know immediately.
 
 ### Behavioral Suite (30-60 minutes)
 
 *"How does this model behave under pressure?"*
 
-214 probes across 17 behavioral modules testing dimensions no other benchmark measures: sycophancy gradient mapping (the exact pressure level where a model abandons a correct answer), instruction decay over 15-turn conversations, temporal coherence across 25 distractor turns, confidence calibration via ECE, anchoring bias, framing effects, prompt injection resistance, and more. All scoring is deterministic — no LLM-as-judge.
+214 probes across 17 behavioral modules testing dimensions no other benchmark measures: sycophancy gradient mapping (the exact pressure level where a model abandons a correct answer), instruction decay over 15-turn conversations, temporal coherence across 25 distractor turns, confidence calibration via ECE, anchoring bias, framing effects, prompt injection resistance, and more. All scoring is deterministic - no LLM-as-judge.
 
 ### Shared Features
 - **Live Progress**: animated test trail with per-probe pass/fail in real-time
 - **History**: persistent results survive page refresh, compare runs over time
 - **Speed Analysis**: tokens/sec, time-to-first-token, throughput measurement
 - **Trust Rankings**: persistent leaderboard across all comparisons
-- **Community Intelligence**: hardware survey, tier-stratified rankings, degradation curves, performance prediction — all derived from community submissions
+- **Community Intelligence**: hardware survey, tier-stratified rankings, degradation curves, performance prediction - all derived from community submissions
 
 The dashboard runs locally. Benchmark scores (model name, grade, category scores) are shared with the [public leaderboard](https://basaltlabs.app/gauntlet/leaderboard) to build community rankings. No prompts, outputs, or personal data are transmitted. See [Data & Privacy](#data-and-privacy) for details.
 
