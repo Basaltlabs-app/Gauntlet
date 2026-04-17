@@ -74,11 +74,15 @@ class TestDegradationEndpoint:
     @patch("gauntlet.mcp.history_store.get_scores_by_quantization")
     def test_degradation_with_mock_quantization_data(self, mock_get_scores, mock_avail):
         """Happy path: returns levels and degradation for valid family+size."""
-        mock_get_scores.return_value = {
-            "fp16": [85.0, 86.0, 84.0],
-            "q8_0": [82.0, 83.0, 81.0],
-            "q4_k_m": [76.0, 78.0, 77.0],
-        }
+        # V2: get_scores_by_quantization returns (scores_dict, perplexity_dict)
+        mock_get_scores.return_value = (
+            {
+                "fp16": [85.0, 86.0, 84.0],
+                "q8_0": [82.0, 83.0, 81.0],
+                "q4_k_m": [76.0, 78.0, 77.0],
+            },
+            {},  # no perplexity data
+        )
 
         client = TestClient(_get_app())
         resp = client.get("/api/degradation?model_family=llama&parameter_size=7b")
@@ -133,7 +137,7 @@ class TestDegradationEndpoint:
     @patch("gauntlet.mcp.history_store.get_scores_by_quantization")
     def test_degradation_no_data_returns_404(self, mock_get_scores, mock_avail):
         """Returns 404 when no data found for the given family+size."""
-        mock_get_scores.return_value = {}
+        mock_get_scores.return_value = ({}, {})
 
         client = TestClient(_get_app())
         resp = client.get("/api/degradation?model_family=nonexistent&parameter_size=999b")

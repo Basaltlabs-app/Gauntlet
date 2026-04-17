@@ -54,10 +54,15 @@ export default function GraphView({ result }) {
 
   if (!models.length) {
     return (
-      <div className="glass rounded-xl p-12 text-center">
-        <Network size={32} className="mx-auto text-[var(--text-muted)] mb-3" />
-        <p className="text-sm text-[var(--text-dim)]">Relationship graph appears after comparing models</p>
-        <p className="text-[10px] text-[var(--text-muted)] mt-1">Use the Compare tab to run two or more models on the same prompt</p>
+      <div className="glass rounded-xl p-16 text-center flex flex-col items-center justify-center min-h-[300px]">
+        <Network size={32} className="mx-auto text-[var(--text-muted)] mb-4" />
+        <p className="text-sm font-medium text-[var(--cs-text)] mb-1.5">No graph data yet</p>
+        <p className="text-xs text-[var(--text-dim)] max-w-sm leading-relaxed">
+          The relationship graph visualizes how models compare against each other. Run a <strong>Compare</strong> to populate it:
+        </p>
+        <code className="mt-3 px-4 py-2 rounded-lg bg-white/[0.03] border border-white/8 text-xs font-mono text-[var(--cs-bronze)]">
+          gauntlet compare model1 model2
+        </code>
       </div>
     )
   }

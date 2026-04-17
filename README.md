@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/gauntlet-v2.0.1-b08d6e?style=for-the-badge" alt="version" />
+  <img src="https://img.shields.io/badge/gauntlet-v2.0.2-b08d6e?style=for-the-badge" alt="version" />
 </p>
 
 <h1 align="center">Gauntlet</h1>
@@ -26,7 +26,7 @@
 <p align="center">
   <img src="https://img.shields.io/pypi/v/gauntlet-cli?color=b08d6e" alt="PyPI" />
   <img src="https://img.shields.io/github/license/Basaltlabs-app/Gauntlet" alt="License" />
-  <img src="https://img.shields.io/badge/probes-231-c4a05a" alt="231 Probes" />
+  <img src="https://img.shields.io/badge/probes-240-c4a05a" alt="240 Probes" />
   <img src="https://img.shields.io/badge/scoring-deterministic-c4a05a" alt="Deterministic" />
 </p>
 
@@ -79,7 +79,7 @@ This is the entry point. Anyone can run it. It takes minutes, not hours. Results
 
 ### Behavioral Suite - "How does this model behave under pressure?" (30-60 min)
 
-231 probes across 19 modules measuring dimensions no other benchmark tests:
+240 probes across 19 modules measuring dimensions no other benchmark tests:
 
 - **Sycophancy gradient**: the exact social pressure level where a model abandons a correct answer (5-level escalation from gentle doubt to hostile ultimatum)
 - **Instruction decay**: how many conversation turns before system prompt constraints degrade (15-turn endurance tests)
@@ -157,7 +157,7 @@ Uses deterministic verification by default. When an external API key is configur
 
 *"How does this model behave under pressure?"*
 
-231 probes across 19 behavioral modules testing dimensions no other benchmark measures: sycophancy gradient mapping (the exact pressure level where a model abandons a correct answer), instruction decay over 15-turn conversations, temporal coherence across 25 distractor turns, confidence calibration via ECE, anchoring bias, framing effects, prompt injection resistance, layer sensitivity (which cognitive functions degrade under quantization), perplexity baseline (correlation with behavioral scores), and more. All Behavioral Suite scoring is deterministic. No LLM-as-judge for behavioral probes.
+240 probes across 19 behavioral modules testing dimensions no other benchmark measures: sycophancy gradient mapping (the exact pressure level where a model abandons a correct answer), instruction decay over 15-turn conversations, temporal coherence across 25 distractor turns, confidence calibration via ECE, anchoring bias, framing effects, prompt injection resistance, layer sensitivity (which cognitive functions degrade under quantization), perplexity baseline (correlation with behavioral scores), and more. All Behavioral Suite scoring is deterministic. No LLM-as-judge for behavioral probes.
 
 ### Shared Features
 - **Live Progress**: animated test trail with per-probe pass/fail in real-time
@@ -271,7 +271,7 @@ The comparison uses a lightweight LLM judge to evaluate output quality, combined
 
 ## Behavioral Taxonomy
 
-**19 behavioral modules. 231 probes. 18 dynamic factories. 14 domain competence tasks.** Each category contains parameterized probes with fully deterministic verification. The compare feature uses lightweight LLM evaluation for freeform quality assessment.
+**19 behavioral modules. 240 probes. 18 dynamic factories. 14 domain competence tasks.** Each category contains parameterized probes with fully deterministic verification. The compare feature uses lightweight LLM evaluation for freeform quality assessment.
 
 | Category | Probes | Dimension Measured | Verification Method |
 |---|---|---|---|
@@ -410,7 +410,7 @@ Add to your MCP client configuration (Claude Code, Cursor, Windsurf, etc.):
 
 Then instruct the AI: **"Run the gauntlet on yourself"**
 
-Same 231 probes. Same deterministic scoring. Same dynamic factories. The model under evaluation is also the executor.
+Same 240 probes. Same deterministic scoring. Same dynamic factories. The model under evaluation is also the executor.
 
 ### Token Usage and Cost
 
@@ -530,7 +530,7 @@ The model name after `llamacpp:` is used for labeling in results and the leaderb
 # Launch the interactive TUI
 gauntlet
 
-# Run the full benchmark (231 probes)
+# Run the full benchmark (240 probes)
 gauntlet run --model ollama/qwen3.5:4b --profile assistant
 
 # Quick mode (~51 probes, reduced set per module)

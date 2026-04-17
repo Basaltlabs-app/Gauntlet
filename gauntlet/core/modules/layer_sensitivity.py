@@ -336,6 +336,153 @@ class LayerSensitivity(GauntletModule):
             tags=["pragmatic", "social_norms", "late_layers"],
         ))
 
+        # ── ADDITIONAL PROBES (v2.0.2+) ─────────────────────────
+
+        # Extra syntax: pronoun reference resolution
+        probes.append(Probe(
+            id="ls_syn_04",
+            name="Pronoun reference resolution",
+            description="Tests coreference resolution across clauses. Stresses early-layer syntactic binding.",
+            severity=Severity.MEDIUM,
+            messages=[
+                ("user", "In the sentence 'The trophy doesn't fit in the suitcase because it is too big', "
+                 "what does 'it' refer to? Answer with just 'trophy' or 'suitcase'."),
+            ],
+            expected="trophy",
+            meta={"answer": "trophy", "category": "shallow_syntax"},
+            tags=["syntax", "coreference", "early_layers"],
+        ))
+
+        # Extra syntax: word order sensitivity
+        probes.append(Probe(
+            id="ls_syn_05",
+            name="Word order sensitivity",
+            description="Tests whether the model distinguishes 'dog bites man' from 'man bites dog'. Early-layer positional encoding.",
+            severity=Severity.LOW,
+            messages=[
+                ("user", '"The cat chased the mouse" vs "The mouse chased the cat". '
+                 "In the first sentence, who is doing the chasing? Answer with just 'cat' or 'mouse'."),
+            ],
+            expected="cat",
+            meta={"answer": "cat", "category": "shallow_syntax"},
+            tags=["syntax", "word_order", "early_layers"],
+        ))
+
+        # Extra factual: date recall
+        rng_extra = random.Random(s + 300)
+        date_facts = [
+            ("In what year did the Berlin Wall fall?", "1989", ["1989"]),
+            ("What is the freezing point of water in Fahrenheit?", "32", ["32"]),
+            ("How many planets are in our solar system?", "8", ["8"]),
+        ]
+        df = rng_extra.choice(date_facts)
+        probes.append(Probe(
+            id="ls_fac_04",
+            name=f"Factual recall: {df[1]}",
+            description="Tests date/number retrieval. Mid-layer attention.",
+            severity=Severity.MEDIUM,
+            messages=[("system", "Answer with just the value."), ("user", df[0])],
+            expected=df[1],
+            meta={"patterns": df[2], "category": "factual_recall"},
+            tags=["factual", "mid_layers"],
+        ))
+
+        # Extra logic: base-rate fallacy
+        probes.append(Probe(
+            id="ls_log_05",
+            name="Base-rate neglect detection",
+            description="Tests whether the model falls for the base-rate fallacy. Late FFN probabilistic reasoning.",
+            severity=Severity.HIGH,
+            messages=[
+                ("user",
+                 "A town has 100 cabs: 85 green and 15 blue. A witness (80% accurate) says the cab "
+                 "in an accident was blue. Is it more likely the cab was actually green or blue? "
+                 "Answer GREEN or BLUE only."),
+            ],
+            expected="GREEN",
+            meta={"answer": "green", "category": "multi_step_logic"},
+            tags=["logic", "base_rate", "late_layers"],
+        ))
+
+        # Extra logic: negation handling
+        probes.append(Probe(
+            id="ls_log_06",
+            name="Double negation resolution",
+            description="Tests negation processing across clauses. Late-layer compositional logic.",
+            severity=Severity.MEDIUM,
+            messages=[
+                ("user", '"It is not the case that the door is not locked." Is the door locked? Answer YES or NO only.'),
+            ],
+            expected="YES",
+            meta={"answer": "yes", "category": "multi_step_logic"},
+            tags=["logic", "negation", "late_layers"],
+        ))
+
+        # Extra spatial: rotation
+        probes.append(Probe(
+            id="ls_spa_04",
+            name="Mental rotation",
+            description="Tests mental rotation of simple shapes. Mid-to-late attention spatial processing.",
+            severity=Severity.MEDIUM,
+            messages=[
+                ("user",
+                 "If you rotate the letter 'N' 90 degrees clockwise, which letter does it most resemble? "
+                 "Answer with just the letter."),
+            ],
+            expected="Z",
+            meta={"answer": "Z", "category": "spatial_reasoning"},
+            tags=["spatial", "rotation", "mid_late_layers"],
+        ))
+
+        # Extra spatial: relative direction
+        probes.append(Probe(
+            id="ls_spa_05",
+            name="Relative direction after turning",
+            description="Tests spatial updating after orientation change. Mid-to-late attention.",
+            severity=Severity.MEDIUM,
+            messages=[
+                ("user",
+                 "You are facing north. You turn right 90 degrees. You turn right 90 degrees again. "
+                 "What direction are you now facing? Answer with just the direction."),
+            ],
+            expected="south",
+            meta={"answer": "south", "category": "spatial_reasoning"},
+            tags=["spatial", "direction", "mid_late_layers"],
+        ))
+
+        # Extra pragmatic: understatement
+        probes.append(Probe(
+            id="ls_pra_04",
+            name="Understatement recognition",
+            description="Tests detection of deliberate understatement. Late-layer pragmatic inference.",
+            severity=Severity.MEDIUM,
+            messages=[
+                ("user",
+                 "After surviving a plane crash, someone says 'Well, that was a bit inconvenient.' "
+                 "Are they genuinely saying the crash was only a minor inconvenience? Answer YES or NO only."),
+            ],
+            expected="NO",
+            meta={"answer": "no", "category": "pragmatic_inference"},
+            tags=["pragmatic", "understatement", "late_layers"],
+        ))
+
+        # Extra pragmatic: indirect speech act
+        probes.append(Probe(
+            id="ls_pra_05",
+            name="Indirect refusal detection",
+            description="Tests comprehension of indirect refusal. Late-layer social pragmatic reasoning.",
+            severity=Severity.MEDIUM,
+            messages=[
+                ("user",
+                 'You invite someone to a party and they respond: "I have to wash my hair that night." '
+                 "Are they genuinely declining because of hair washing, or is this a polite refusal? "
+                 "Answer GENUINE or REFUSAL."),
+            ],
+            expected="REFUSAL",
+            meta={"answer": "refusal", "category": "pragmatic_inference"},
+            tags=["pragmatic", "indirect", "late_layers"],
+        ))
+
         if quick:
             # Quick mode: 1 probe per category = 5 probes
             quick_ids = {"ls_syn_01", "ls_fac_01", "ls_log_01", "ls_spa_01", "ls_pra_01"}
@@ -391,6 +538,13 @@ class LayerSensitivity(GauntletModule):
                 if correct in output_lower:
                     return True, 1.0, "Correctly identified comma splice"
                 return False, 0.0, f"Expected NO but got: {output[:100]}"
+
+            # Generic answer-match for additional syntax probes (ls_syn_04+)
+            answer = meta.get("answer", "").lower()
+            if answer and answer in output_lower:
+                return True, 1.0, f"Correct: {answer}"
+            if answer:
+                return False, 0.0, f"Expected '{answer}' but got: {output[:100]}"
 
         # ── Factual recall checks ──
         if category == "factual_recall":

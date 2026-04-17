@@ -414,13 +414,21 @@ async def submit_handler(request: Request) -> Response:
             model_size_gb=(mc or {}).get("size_gb", 0),
         )
 
+    # Inject raw perplexity into category_scores JSONB so it's stored
+    # alongside the behavioral scores without needing a schema migration.
+    # The degradation API reads it back as "_perplexity_raw".
+    cat_scores = dict(body.get("category_scores", {}))
+    raw_ppl = body.get("perplexity")
+    if raw_ppl is not None:
+        cat_scores["_perplexity_raw"] = raw_ppl
+
     try:
         record_test_result(
             model_name=model_name,
             overall_score=body.get("overall_score", 0),
             trust_score=body.get("trust_score", 0),
             grade=body.get("grade", "?"),
-            category_scores=body.get("category_scores", {}),
+            category_scores=cat_scores,
             total_probes=body.get("total_probes", 0),
             passed_probes=body.get("passed_probes", 0),
             source=body.get("source", "cli"),
@@ -548,24 +556,32 @@ async def degradation_handler(request: Request) -> Response:
             {"error": "Storage not configured"}, status_code=503, headers=CORS_HEADERS,
         )
 
-    scores_by_quant = get_scores_by_quantization(model_family, parameter_size)
+    scores_by_quant, perplexity_by_quant = get_scores_by_quantization(model_family, parameter_size)
     if not scores_by_quant:
         return JSONResponse(
             {"error": f"No data for model_family={model_family}, parameter_size={parameter_size}"},
             status_code=404, headers=CORS_HEADERS,
         )
 
-    # Compute per-level statistics
+    # Compute per-level statistics (behavioral scores)
     levels = {}
     for quant, scores in scores_by_quant.items():
         stats = compute_statistics(scores)
         if stats is not None:
-            levels[quant] = {
+            level_data = {
                 "mean": stats.mean,
                 "sample_size": stats.sample_size,
                 "ci_lower": stats.ci_lower,
                 "ci_upper": stats.ci_upper,
             }
+            # Include perplexity statistics if V2 data is available
+            ppl_values = perplexity_by_quant.get(quant, [])
+            if ppl_values:
+                ppl_stats = compute_statistics(ppl_values)
+                if ppl_stats is not None:
+                    level_data["perplexity_mean"] = round(ppl_stats.mean, 2)
+                    level_data["perplexity_n"] = ppl_stats.sample_size
+            levels[quant] = level_data
 
     # Compute degradation drops
     degradation = compute_degradation(scores_by_quant)
@@ -576,6 +592,9 @@ async def degradation_handler(request: Request) -> Response:
             "parameter_size": parameter_size,
             "levels": levels,
             "degradation": degradation,
+            "has_perplexity": any(
+                "perplexity_mean" in v for v in levels.values()
+            ),
         },
         headers=CORS_HEADERS,
     )

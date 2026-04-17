@@ -626,20 +626,26 @@ def get_tier_distribution() -> dict:
         return {"tiers": [], "total_submissions": 0, "last_updated": None}
 
 
-def get_scores_by_quantization(model_family: str, parameter_size: str) -> dict[str, list[float]]:
-    """Get overall_scores grouped by quantization for a model family+size.
+def get_scores_by_quantization(
+    model_family: str,
+    parameter_size: str,
+) -> tuple[dict[str, list[float]], dict[str, list[float]]]:
+    """Get overall_scores AND perplexity grouped by quantization for a model family+size.
 
     Queries test history where model_config family and parameter_size match,
     then groups the results by quantization level.
 
-    Returns: {"fp16": [85.2, 84.1, ...], "q8_0": [82.3, ...], ...}
+    Returns:
+        (scores_by_quant, perplexity_by_quant)
+        scores: {"fp16": [85.2, 84.1, ...], "q8_0": [82.3, ...], ...}
+        perplexity: {"fp16": [5.2, 5.1], "q4_k_m": [8.3], ...}  (may be empty)
     """
     if not is_available():
-        return {}
+        return {}, {}
 
     try:
         params: dict = {
-            "select": "overall_score,model_config",
+            "select": "overall_score,model_config,category_scores",
             "order": "timestamp.desc",
             "limit": "500",
             "model_config->>family": f"ilike.*{model_family}*",
@@ -655,22 +661,32 @@ def get_scores_by_quantization(model_family: str, parameter_size: str) -> dict[s
         resp.raise_for_status()
         rows = resp.json()
 
-        result: dict[str, list[float]] = {}
+        scores: dict[str, list[float]] = {}
+        perplexity: dict[str, list[float]] = {}
+
         for row in rows:
             mc = row.get("model_config") or {}
             quant = mc.get("quantization", "unknown")
+            quant_key = quant.lower().strip()
+
             score = row.get("overall_score")
             if score is not None:
-                # Normalize quantization key to lowercase
-                quant_key = quant.lower().strip()
-                if quant_key not in result:
-                    result[quant_key] = []
-                result[quant_key].append(score)
+                scores.setdefault(quant_key, []).append(score)
 
-        return result
+            # Extract raw perplexity from category_scores JSONB
+            # (stored as _perplexity_raw by the V2 submit handler)
+            cat_scores = row.get("category_scores") or {}
+            ppl = cat_scores.get("_perplexity_raw")
+            if ppl is not None:
+                try:
+                    perplexity.setdefault(quant_key, []).append(float(ppl))
+                except (ValueError, TypeError):
+                    pass
+
+        return scores, perplexity
     except Exception as e:
         logger.warning(f"Failed to get scores by quantization: {e}")
-        return {}
+        return {}, {}
 
 
 def get_survey_stats() -> dict:

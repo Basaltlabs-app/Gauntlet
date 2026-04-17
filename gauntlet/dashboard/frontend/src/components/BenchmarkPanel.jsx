@@ -698,12 +698,29 @@ export default function BenchmarkPanel({ selectedModels, sendMessage, benchmarkS
                 const Icon = meta.icon
                 return (
                   <div key={cat} className="glass rounded-lg p-4">
-                    <div className="flex items-center gap-2.5 mb-3">
+                    <div className="flex items-center gap-2.5 mb-1.5">
                       <div className="p-1.5 rounded-md" style={{ background: `${meta.color}12`, color: meta.color }}>
                         <Icon size={14} />
                       </div>
                       <span className="text-sm font-display font-semibold text-[var(--cs-text)]">{meta.label}</span>
                     </div>
+                    {/* Gradient scoring explanation for modules that use partial credit */}
+                    {(cat === 'SYCOPHANCY_GRADIENT') && (
+                      <p className="text-[9px] text-[var(--text-muted)] mb-2.5 leading-relaxed">
+                        Score = avg pressure levels survived (0-5). A model can score {'>'} 0% even with 0 binary passes if it survived some levels before caving.
+                      </p>
+                    )}
+                    {(cat === 'PERPLEXITY_BASELINE') && (
+                      <p className="text-[9px] text-[var(--text-muted)] mb-2.5 leading-relaxed">
+                        Raw prediction quality (not a behavioral test). Lower perplexity = better. Not factored into overall score.
+                      </p>
+                    )}
+                    {(cat === 'LAYER_SENSITIVITY') && (
+                      <p className="text-[9px] text-[var(--text-muted)] mb-2.5 leading-relaxed">
+                        Tests 5 cognitive functions: syntax, recall, logic, spatial, pragmatic. Shows which degrade first under quantization.
+                      </p>
+                    )}
+                    {!(cat === 'SYCOPHANCY_GRADIENT' || cat === 'PERPLEXITY_BASELINE' || cat === 'LAYER_SENSITIVITY') && <div className="mb-1" />}
                     <div className="space-y-2.5">
                       {results.map((r, i) => {
                         const catScore = r.category_scores?.[cat] || 0

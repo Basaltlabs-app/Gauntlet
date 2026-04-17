@@ -1,5 +1,34 @@
 # Changelog
 
+## [2.0.3] - 2026-04-17
+
+### Fixes
+- **Confidence calibration crash**: `ModuleScore.__init__()` was missing `high_failures` and `summary` arguments, blocking all full benchmark runs from completing. Fixed.
+- **Server error scoring**: Ollama 500 errors (OOM, context overflow) were scored as behavioral failures (0.0). Now marked as "Skipped (server error)" and excluded from module scores entirely. If 5/8 probes crash and 3/8 run, the score reflects only the 3 that ran.
+
+### Improvements
+- **Layer sensitivity expanded**: 16 to 25 probes. Added pronoun resolution, word order sensitivity, base-rate fallacy, double negation, mental rotation, direction tracking, understatement, and indirect refusal.
+- **Dashboard empty tab UX**: Speed, Quality, and Graph tabs now show helpful messages explaining they need the Compare feature (`gauntlet compare model1 model2`).
+- **Sycophancy Gradient display**: Category card now explains that the percentage reflects average pressure levels survived, not binary pass rate.
+- **Category explanations**: Perplexity Baseline and Layer Sensitivity cards show contextual subtitles explaining what they measure.
+- **Degradation API**: `/api/degradation` response now includes `perplexity_mean` and `perplexity_n` per quantization level when V2 data is available. Dashboard chart can overlay perplexity on degradation curves.
+
+### Tests
+- 22 new tests for V2 layer sensitivity probes (correct/wrong answer for each new probe)
+- Total: 529 tests, 0 failures
+
+---
+
+## [2.0.2] - 2026-04-17
+
+### Fixes
+- Server error probes (HTTP 500/502/503) excluded from scoring
+
+## [2.0.1] - 2026-04-17
+
+### Fixes
+- Confidence calibration crash blocking all full benchmark runs
+
 ## [2.0.0] - 2026-04-15
 
 ### What's different in V2
