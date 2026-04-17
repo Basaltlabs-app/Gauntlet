@@ -252,7 +252,8 @@ class ConfidenceCalibration(GauntletModule):
                 failed=len(result.probe_results),
                 total=len(result.probe_results),
                 critical_failures=0,
-                details="Could not parse any confidence levels",
+                high_failures=0,
+                summary="Could not parse any confidence levels",
             )
 
         # Compute ECE with 3 buckets: low (1-3), mid (4-6), high (7-10)
@@ -311,5 +312,7 @@ class ConfidenceCalibration(GauntletModule):
             failed=failed,
             total=len(result.probe_results),
             critical_failures=0,
-            details=f"ECE={ece:.3f}. {'; '.join(details_parts)}",
+            high_failures=0,
+            summary=f"ECE={ece:.3f}. Calibration: {calibration_score:.0%}",
+            details={"ece": round(ece, 4), "buckets": details_parts},
         )
