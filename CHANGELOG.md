@@ -1,0 +1,51 @@
+# Changelog
+
+## [2.0.0] - 2026-04-15
+
+### What's different in V2
+
+V2 adds the empirical tools to answer the question "does perplexity predict behavioral degradation under quantization?" Every V2 run now includes a perplexity baseline alongside the behavioral probes, so the community can build the correlation dataset that settles this debate with data instead of speculation.
+
+V2 also adds layer-sensitivity probes that map specific cognitive functions (syntax, factual recall, logic, spatial reasoning, pragmatic inference) to different transformer layer groups. This enables the community to answer: "does Q4_K_M preserve logic but degrade spatial reasoning?" and "does GPTQ produce different error profiles than GGUF at the same bit width?"
+
+### New modules
+
+- **PERPLEXITY_BASELINE**: Measures raw token prediction quality on a fixed evaluation corpus using logprobs from Ollama/llama.cpp. NOT factored into TrustScore or GauntletScore. Reported as a standalone metric in community submissions for correlation analysis. Gracefully skips for cloud providers without logprob access.
+- **LAYER_SENSITIVITY** (16 probes, 5 categories): Probes cognitive functions localized in different transformer layer groups:
+  - Shallow syntax (3 probes): subject-verb agreement, format preservation, grammatical error detection
+  - Factual recall (3 probes): chemical symbols, physical constants, biology facts
+  - Multi-step logic (4 probes): chained arithmetic, transitivity, modus tollens, syllogism with distractor
+  - Spatial reasoning (3 probes): relative position ordering, mirror reflection, clock position
+  - Pragmatic inference (3 probes): sarcasm detection, Gricean implicature, social norm inference
+  - Per-category score breakdown identifies which cognitive function degrades first under quantization
+
+### Enhanced metadata
+
+- **`quant_method`** field: Captures quantization algorithm (gguf, gguf_iq, gptq, awq, exl2, safetensors, cloud). Enables filtering by quant method on the community leaderboard.
+- **`quant_source`** field: Captures who made the quantization (bartowski, thebloke, mradermacher, turboderp, unsloth, official, community). Not all Q4 quants are the same.
+- Both fields auto-populated from model name patterns and format metadata.
+
+### Scoring
+
+- PERPLEXITY_BASELINE excluded from GauntletScore and TrustScore aggregation
+- LAYER_SENSITIVITY added to all three profiles (assistant: 0.6, coder: 0.8, researcher: 0.9)
+- Community submission payload includes `"perplexity": <float or null>` as a top-level metric
+
+### Documentation
+
+- New README section: "Doesn't perplexity already measure this?" directly addressing the most common criticism with specific behavioral examples
+- Updated probe count badge: 231 probes across 19 modules
+- Layer sensitivity and perplexity baseline added to behavioral taxonomy
+
+### Tests
+
+- New test suite: `test_perplexity_baseline.py` (perplexity math, module structure, scoring exclusion)
+- New test suite: `test_layer_sensitivity.py` (probe generation, check logic for all 5 categories, scoring breakdown)
+- New test suite: `test_quant_method.py` (field existence, inference logic for GGUF/IQ/GPTQ/AWQ/EXL2, source detection)
+- All 449 existing tests continue to pass
+
+---
+
+## [1.5.1] - 2026-04-13
+
+Previous release. See git history for details.

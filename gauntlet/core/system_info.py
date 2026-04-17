@@ -81,7 +81,9 @@ class SystemFingerprint:
     # Model-specific
     model_family: str = "unknown"      # llama, qwen, gemma
     model_parameter_size: str = ""     # 7b, 35b
-    quantization: str = "unknown"      # q4_0, q8_0, fp16
+    quantization: str = "unknown"      # q4_0, q4_k_m, q8_0, fp16
+    quant_method: str = "unknown"      # gguf, gptq, awq, exl2, bba (quantization algorithm)
+    quant_source: str = "unknown"      # who made the quant: bartowski, thebloke, official, etc.
     model_format: str = "unknown"      # gguf, safetensors
     model_size_gb: float = 0.0         # file size on disk
 
@@ -119,6 +121,8 @@ class SystemFingerprint:
             "family": self.model_family,
             "parameter_size": self.model_parameter_size,
             "quantization": self.quantization,
+            "quant_method": self.quant_method,
+            "quant_source": self.quant_source,
             "format": self.model_format,
             "size_gb": round(self.model_size_gb, 1),
         }
@@ -479,10 +483,52 @@ def collect_fingerprint(
             fp.quantization = meta.get("quantization", "unknown")
             fp.model_format = meta.get("format", "unknown")
 
+            # Infer quant_method from format + quantization pattern.
+            # GGUF quants have distinctive patterns (Q4_K_M, IQ4_XS, etc.)
+            # GPTQ/AWQ/EXL2 typically use safetensors format.
+            fmt = fp.model_format.lower()
+            quant = fp.quantization.upper()
+            if fmt == "gguf":
+                # Distinguish IQ (importance-matrix quants) vs standard Q-types
+                if quant.startswith("IQ"):
+                    fp.quant_method = "gguf_iq"  # importance-matrix quantization
+                else:
+                    fp.quant_method = "gguf"
+            elif fmt == "safetensors":
+                # safetensors is used by GPTQ, AWQ, EXL2, and unquantized models
+                if "gptq" in model_name.lower():
+                    fp.quant_method = "gptq"
+                elif "awq" in model_name.lower():
+                    fp.quant_method = "awq"
+                elif "exl2" in model_name.lower():
+                    fp.quant_method = "exl2"
+                else:
+                    fp.quant_method = "safetensors"
+            elif fmt == "api":
+                fp.quant_method = "cloud"
+
+            # Infer quant_source from the model name/tag (Ollama tags often
+            # encode the source: "bartowski/llama3:Q4_K_M", "thebloke/...", etc.)
+            model_lower = model_name.lower()
+            for source in ("bartowski", "thebloke", "mradermacher", "turboderp",
+                           "unsloth", "mlabonne", "cognitivecomputations", "nousresearch"):
+                if source in model_lower:
+                    fp.quant_source = source
+                    break
+            else:
+                # Check Ollama families metadata for community quants
+                families = meta.get("families", [])
+                if families and len(families) > 1:
+                    fp.quant_source = "community"
+                else:
+                    fp.quant_source = "official"
+
     # Cloud providers
     elif provider in ("openai", "anthropic", "google"):
         fp.model_family = model_name.split("-")[0] if "-" in model_name else model_name
         fp.quantization = "cloud"
+        fp.quant_method = "cloud"
+        fp.quant_source = "official"
         fp.model_format = "api"
         fp.device_class = "cloud"
 

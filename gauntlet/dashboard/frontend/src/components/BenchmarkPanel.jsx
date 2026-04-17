@@ -26,6 +26,9 @@ const CATEGORY_META = {
   ANCHORING_BIAS:           { icon: Brain,          label: 'Anchoring',     color: '#c4a05a' },
   PROMPT_INJECTION:         { icon: AlertTriangle,  label: 'Injection',     color: '#6ea882' },
   FRAMING_EFFECT:           { icon: Repeat,         label: 'Framing',       color: '#c4a05a' },
+  // v2: new modules
+  PERPLEXITY_BASELINE:      { icon: Gauge,          label: 'Perplexity',    color: '#b08d6e' },
+  LAYER_SENSITIVITY:        { icon: Zap,            label: 'Sensitivity',   color: '#c87850' },
   // Legacy lowercase categories (from old benchmarks.py pipeline)
   instruction_following:    { icon: ClipboardCheck, label: 'Instructions',  color: '#5da4a8' },
   code_generation:          { icon: Code,           label: 'Coding',        color: '#a87c94' },
@@ -49,9 +52,19 @@ function barBg(score) {
   return 'bg-[#c27065]'
 }
 
+// Auto-generate metadata for modules not explicitly in CATEGORY_META.
+// This means adding a new Python module NEVER requires editing this file.
+function getCategoryMeta(cat) {
+  if (CATEGORY_META[cat]) return CATEGORY_META[cat]
+  // Auto-generate: use Brain icon, neutral color, humanized label
+  const label = cat.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+    .replace(/\b(And|Of|The|In|For|A)\b/g, w => w.toLowerCase())
+    .slice(0, 14) // keep short for badges
+  return { icon: Brain, label, color: '#9b8e78' }
+}
+
 function categoryBadgeStyle(cat) {
-  const meta = CATEGORY_META[cat]
-  if (!meta) return { background: 'rgba(255,255,255,0.04)', color: 'var(--text-dim)' }
+  const meta = getCategoryMeta(cat)
   return { background: `${meta.color}15`, color: meta.color }
 }
 
@@ -108,7 +121,7 @@ function ElapsedTimer() {
 }
 
 function TestRow({ test, index }) {
-  const meta = CATEGORY_META[test.category] || { label: test.category, color: '#9a9590', icon: Gauge }
+  const meta = getCategoryMeta(test.category)
   const Icon = meta.icon
   const isActive = test.status === 'running'
   const isDone = test.status === 'done'
@@ -320,7 +333,7 @@ export default function BenchmarkPanel({ selectedModels, sendMessage, benchmarkS
         <div>
           <h1 className="text-4xl md:text-5xl font-display font-bold tracking-tighter gradient-text-hero mb-2">Behavioral Suite</h1>
           <p className="text-xs tracking-[0.1em] text-[var(--text-muted)] font-display max-w-lg">
-            Deep behavioral analysis — 17 modules, 214 probes testing sycophancy resistance, instruction decay, hallucination detection, pressure thresholds, and more. For research and production deployment decisions.
+            Deep behavioral analysis — 19 modules, 231 probes testing sycophancy resistance, instruction decay, hallucination detection, pressure thresholds, layer sensitivity, perplexity baseline, and more. For research and production deployment decisions.
           </p>
         </div>
         <div className="flex gap-3 items-center">
@@ -681,7 +694,7 @@ export default function BenchmarkPanel({ selectedModels, sendMessage, benchmarkS
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               {Object.entries(results[0]?.category_scores || {}).map(([cat, score]) => {
-                const meta = CATEGORY_META[cat] || { icon: Gauge, label: cat, color: '#9a9590' }
+                const meta = getCategoryMeta(cat)
                 const Icon = meta.icon
                 return (
                   <div key={cat} className="glass rounded-lg p-4">
@@ -750,7 +763,7 @@ export default function BenchmarkPanel({ selectedModels, sendMessage, benchmarkS
                             className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase"
                             style={catStyle}
                           >
-                            {(CATEGORY_META[test.category]?.label || test.category)}
+                            {getCategoryMeta(test.category).label}
                           </span>
                         </td>
                         {results.map((r, i) => {

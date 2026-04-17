@@ -37,20 +37,33 @@ from gauntlet.mcp.server import mcp
 # Minimum CLI version allowed to submit (reject older broken versions)
 MIN_CLI_VERSION = "1.3.5"
 
-# Known valid category names from registered modules
-VALID_CATEGORIES = {
-    "AMBIGUITY_HONESTY", "SYCOPHANCY_TRAP", "INSTRUCTION_ADHERENCE",
-    "CONSISTENCY_DRIFT", "SAFETY_NUANCE", "HALLUCINATION_PROBE",
-    "CONTEXT_FIDELITY", "REFUSAL_CALIBRATION", "CONTAMINATION_CHECK",
-    "TEMPORAL_COHERENCE", "INSTRUCTION_DECAY", "SYCOPHANCY_GRADIENT",
-    "CONFIDENCE_CALIBRATION",
-    # v1.3.7: cognitive bias + security modules
-    "ANCHORING_BIAS", "PROMPT_INJECTION", "LOGICAL_CONSISTENCY", "FRAMING_EFFECT",
-    # Benchmark/compare categories (from scorer)
-    "speed", "quality", "responsiveness", "overall",
-    # Health check categories
-    "writing", "code", "reasoning", "summarization", "data_analysis", "creative", "regression_anchor",
-}
+# Valid category names: auto-derived from the module registry + fixed
+# non-module categories (benchmark/compare + health check domains).
+# This means adding a new module NEVER requires updating this file.
+def _build_valid_categories() -> set[str]:
+    """Auto-discover module names from the registry + add fixed categories."""
+    cats: set[str] = set()
+    try:
+        from gauntlet.core.module_runner import load_all_modules, list_modules
+        load_all_modules()
+        cats = {m.name for m in list_modules()}
+    except Exception:
+        # Fallback if import fails (cold start edge case)
+        cats = {
+            "AMBIGUITY_HONESTY", "SYCOPHANCY_TRAP", "INSTRUCTION_ADHERENCE",
+            "CONSISTENCY_DRIFT", "SAFETY_NUANCE", "HALLUCINATION_PROBE",
+            "CONTEXT_FIDELITY", "REFUSAL_CALIBRATION", "CONTAMINATION_CHECK",
+            "TEMPORAL_COHERENCE", "INSTRUCTION_DECAY", "SYCOPHANCY_GRADIENT",
+            "CONFIDENCE_CALIBRATION", "ANCHORING_BIAS", "PROMPT_INJECTION",
+            "LOGICAL_CONSISTENCY", "FRAMING_EFFECT", "PERPLEXITY_BASELINE",
+            "LAYER_SENSITIVITY",
+        }
+    # Non-module categories that appear in submissions (benchmark/compare + health check)
+    cats |= {"speed", "quality", "responsiveness", "overall"}
+    cats |= {"writing", "code", "reasoning", "summarization", "data_analysis", "creative", "regression_anchor"}
+    return cats
+
+VALID_CATEGORIES = _build_valid_categories()
 
 # HMAC signing key (shared with CLI, not truly secret but stops casual abuse)
 _SUBMIT_KEY = os.environ.get("GAUNTLET_SUBMIT_KEY", "gauntlet-community-2026")

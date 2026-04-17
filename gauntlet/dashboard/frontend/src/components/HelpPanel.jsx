@@ -26,7 +26,7 @@ The winner is determined by a transparent composite score: Speed (30%) + Quality
   {
     title: 'Run the benchmark suite',
     icon: Gauge,
-    content: `The Benchmark tab runs 17 behavioral modules with programmatic verification:
+    content: `The Benchmark tab runs 19 behavioral modules with programmatic verification:
 
 - Ambiguity Honesty: does it admit when something is unclear?
 - Sycophancy Trap / Gradient: does it cave when you push back?
@@ -40,6 +40,8 @@ The winner is determined by a transparent composite score: Speed (30%) + Quality
 - Anchoring Bias / Framing Effect: is it swayed by irrelevant framing?
 - Prompt Injection: can it resist adversarial instructions?
 - Logical Consistency / Temporal Coherence: sound reasoning over time
+- Perplexity Baseline: raw prediction quality (for correlation with behavioral scores)
+- Layer Sensitivity: which cognitive functions (syntax, logic, spatial, pragmatic) degrade first?
 
 Each module runs multiple probes with programmatic pass/fail checks.
 Quick mode uses fewer probes per module; full mode is comprehensive.
@@ -92,7 +94,7 @@ Use: gauntlet swe (from terminal)`
     q: 'How is the winner decided?',
     a: `For "Run Comparison": a weighted formula -- Speed (30%) + Quality (50%) + Responsiveness (20%). Quality comes from an optional LLM judge. You see every component score.
 
-For "Benchmark": a severity-weighted score across 17 behavioral modules. Each probe has programmatic verification. The overall grade (A-F) reflects behavioral reliability.
+For "Benchmark": a severity-weighted score across 19 behavioral modules. Each probe has programmatic verification. The overall grade (A-F) reflects behavioral reliability.
 
 The leaderboard tracks trust rankings over many comparisons using a weighted rating system. Results are also submitted to the community leaderboard.`
   },
@@ -192,8 +194,8 @@ export default function HelpPanel() {
           {[
             ['gauntlet dashboard', 'Open this dashboard'],
             ['gauntlet run "prompt"', 'Quick comparison with auto-detected models'],
-            ['gauntlet benchmark', 'Run the full 17-module suite'],
-            ['gauntlet benchmark --quick', 'Run 17 modules with fewer probes (faster)'],
+            ['gauntlet benchmark', 'Run the full 19-module suite'],
+            ['gauntlet benchmark --quick', 'Run 19 modules with fewer probes (faster)'],
             ['gauntlet swe', 'SWE-bench style code testing'],
             ['gauntlet discover', 'List all installed models'],
             ['gauntlet leaderboard', 'View persistent trust rankings'],

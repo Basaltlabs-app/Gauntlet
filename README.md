@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/gauntlet-v1.5.1-b08d6e?style=for-the-badge" alt="version" />
+  <img src="https://img.shields.io/badge/gauntlet-v2.0.0-b08d6e?style=for-the-badge" alt="version" />
 </p>
 
 <h1 align="center">Gauntlet</h1>
@@ -12,6 +12,7 @@
 <p align="center">
   <a href="#quick-test">Quick Test</a> &bull;
   <a href="#behavioral-suite">Behavioral Suite</a> &bull;
+  <a href="#perplexity-baseline">Perplexity</a> &bull;
   <a href="#community-leaderboard">Leaderboard</a> &bull;
   <a href="#dashboard">Dashboard</a> &bull;
   <a href="#llamacpp">llama.cpp</a> &bull;
@@ -25,7 +26,7 @@
 <p align="center">
   <img src="https://img.shields.io/pypi/v/gauntlet-cli?color=b08d6e" alt="PyPI" />
   <img src="https://img.shields.io/github/license/Basaltlabs-app/Gauntlet" alt="License" />
-  <img src="https://img.shields.io/badge/probes-229-c4a05a" alt="229 Probes" />
+  <img src="https://img.shields.io/badge/probes-231-c4a05a" alt="231 Probes" />
   <img src="https://img.shields.io/badge/scoring-deterministic-c4a05a" alt="Deterministic" />
 </p>
 
@@ -47,6 +48,21 @@ You have no way to know:
 
 Every existing benchmark (MMLU, HumanEval, SWE-bench, MT-Bench) produces one set of scores from one lab on one hardware configuration. They measure what a model **knows**, not how it **behaves** - and they can't tell you anything about how it performs on hardware like yours.
 
+## "Doesn't perplexity already measure this?"
+
+No. Perplexity measures how well a model predicts the next token. It tells you prediction confidence degraded by X% at Q4. It does **not** tell you:
+
+- **Does the model start caving to social pressure at Q4 when it held firm at Q8?** (Sycophancy gradient)
+- **Does instruction following break down after 10 conversation turns at lower quant?** (Instruction decay)
+- **Does it hallucinate more confidently (high stated confidence, wrong answer) at Q4 vs FP16?** (Confidence calibration)
+- **Does it become more susceptible to prompt injection at lower quant?** (Prompt injection resistance)
+
+A model can have nearly identical perplexity at Q4 and Q8 but behave very differently under pressure or over long conversations. That gap is what Gauntlet measures.
+
+**We include perplexity as a baseline metric** in every run (when logprobs are available) specifically so the community can verify this empirically. If perplexity tracks closely with behavioral scores, Gauntlet is redundant and we'll say so. If they diverge (which early data suggests), that's the evidence that behavioral probes capture something perplexity misses. Either way, the answer should come from data, not from Reddit arguments.
+
+**What about quantization method differences?** Not all Q4 quants are the same. Gauntlet captures the full quantization type (Q4_K_M vs Q4_K_S vs IQ4_XS), the quantization method (GGUF, GPTQ, AWQ, EXL2), and the quant source (bartowski, thebloke, official, etc.) so the community can compare behavioral profiles across quant methods at the same bit width. Per-tensor quantization affects which cognitive functions degrade (logic vs. spatial reasoning vs. instruction following) and Gauntlet's probe categories map directly to those dimensions.
+
 ## What Gauntlet Does
 
 Gauntlet is a community-powered platform that answers the question: **"How does this model perform on hardware like mine, for tasks like mine?"**
@@ -63,13 +79,14 @@ This is the entry point. Anyone can run it. It takes minutes, not hours. Results
 
 ### Behavioral Suite - "How does this model behave under pressure?" (30-60 min)
 
-214 probes across 17 behavioral modules measuring dimensions no other benchmark tests:
+231 probes across 19 modules measuring dimensions no other benchmark tests:
 
 - **Sycophancy gradient**: the exact social pressure level where a model abandons a correct answer (5-level escalation from gentle doubt to hostile ultimatum)
 - **Instruction decay**: how many conversation turns before system prompt constraints degrade (15-turn endurance tests)
 - **Temporal coherence**: fact retention across 25 distractor turns in multi-turn conversations
 - **Confidence calibration**: correlation between a model's stated confidence and its actual accuracy (ECE metric)
 - **Safety nuance**: does the model over-refuse harmless questions? Does it comply with harmful ones? Context-dependent harm detection with matched pairs (same information, different intent)
+- **Layer sensitivity** (v2): probes targeting specific cognitive functions (syntax, factual recall, multi-step logic, spatial reasoning, pragmatic inference) that map to different transformer layer groups, revealing which capabilities break first under quantization
 - **Anchoring bias, framing effects, prompt injection resistance, hallucination detection**, and 8 more
 
 All Behavioral Suite scoring is fully deterministic - regex, pattern matching, structural verification. No LLM judges another LLM in behavioral probes. The Quick Test uses an external LLM judge (when an API key is available) for writing and creative quality - the model being tested never evaluates itself. 18 dynamic probe factories randomize values per run to prevent memorization.
@@ -140,7 +157,7 @@ Uses deterministic verification by default. When an external API key is configur
 
 *"How does this model behave under pressure?"*
 
-214 probes across 17 behavioral modules testing dimensions no other benchmark measures: sycophancy gradient mapping (the exact pressure level where a model abandons a correct answer), instruction decay over 15-turn conversations, temporal coherence across 25 distractor turns, confidence calibration via ECE, anchoring bias, framing effects, prompt injection resistance, and more. All Behavioral Suite scoring is deterministic. No LLM-as-judge for behavioral probes.
+231 probes across 19 behavioral modules testing dimensions no other benchmark measures: sycophancy gradient mapping (the exact pressure level where a model abandons a correct answer), instruction decay over 15-turn conversations, temporal coherence across 25 distractor turns, confidence calibration via ECE, anchoring bias, framing effects, prompt injection resistance, layer sensitivity (which cognitive functions degrade under quantization), perplexity baseline (correlation with behavioral scores), and more. All Behavioral Suite scoring is deterministic. No LLM-as-judge for behavioral probes.
 
 ### Shared Features
 - **Live Progress**: animated test trail with per-probe pass/fail in real-time
@@ -254,7 +271,7 @@ The comparison uses a lightweight LLM judge to evaluate output quality, combined
 
 ## Behavioral Taxonomy
 
-**17 behavioral modules. 214 probes. 18 dynamic factories. 14 domain competence tasks.** Each category contains parameterized probes with fully deterministic verification. The compare feature uses lightweight LLM evaluation for freeform quality assessment.
+**19 behavioral modules. 231 probes. 18 dynamic factories. 14 domain competence tasks.** Each category contains parameterized probes with fully deterministic verification. The compare feature uses lightweight LLM evaluation for freeform quality assessment.
 
 | Category | Probes | Dimension Measured | Verification Method |
 |---|---|---|---|
@@ -349,7 +366,7 @@ This gradient serves as a behavioral fingerprint: models that cave at level 3 (a
 
 Every benchmark result includes a provenance chain that ties the score to the exact benchmark configuration:
 
-- **Module versioning**: Each of the 17 modules has a `content_hash`, a SHA-256 of its canonical probe definitions. The version string follows the format `"{declared_version}.{hash[:8]}"` (e.g., `0.1.0.a3f2bc91`). If probes change, the hash changes automatically.
+- **Module versioning**: Each of the 19 modules has a `content_hash`, a SHA-256 of its canonical probe definitions. The version string follows the format `"{declared_version}.{hash[:8]}"` (e.g., `0.1.0.a3f2bc91`). If probes change, the hash changes automatically.
 - **Benchmark fingerprint**: A SHA-256 of the sorted module version dict. Two runs with identical fingerprints tested the exact same probes.
 - **Result attestation**: Every community submission includes `gauntlet_version`, `benchmark_fingerprint`, `module_versions`, `hardware_tier`, and a UTC timestamp.
 - **Seeded randomization**: Dynamic probe factories accept a `--seed` parameter. Same seed, same module versions, same hardware = identical probes.
@@ -393,7 +410,7 @@ Add to your MCP client configuration (Claude Code, Cursor, Windsurf, etc.):
 
 Then instruct the AI: **"Run the gauntlet on yourself"**
 
-Same 214 probes. Same deterministic scoring. Same dynamic factories. The model under evaluation is also the executor.
+Same 231 probes. Same deterministic scoring. Same dynamic factories. The model under evaluation is also the executor.
 
 ### Token Usage and Cost
 
@@ -513,7 +530,7 @@ The model name after `llamacpp:` is used for labeling in results and the leaderb
 # Launch the interactive TUI
 gauntlet
 
-# Run the full benchmark (214 probes)
+# Run the full benchmark (231 probes)
 gauntlet run --model ollama/qwen3.5:4b --profile assistant
 
 # Quick mode (~51 probes, reduced set per module)

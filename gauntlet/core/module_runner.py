@@ -121,6 +121,23 @@ def load_all_modules() -> None:
         from gauntlet.core.modules import framing_effect  # noqa: F401
     except ImportError:
         pass
+    try:
+        from gauntlet.core.modules import perplexity_baseline  # noqa: F401
+    except ImportError:
+        pass
+    try:
+        from gauntlet.core.modules import layer_sensitivity  # noqa: F401
+    except ImportError:
+        pass
+
+    # After all modules are registered, refresh the centralized MODULE_LABELS
+    # dict so CLI/TUI/HTML/dashboard displays auto-discover new modules
+    # without manual dict entries. See gauntlet/core/report.py for details.
+    try:
+        from gauntlet.core.report import refresh_module_labels
+        refresh_module_labels()
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -450,9 +467,16 @@ def _submit_to_community(
             from gauntlet.core.system_info import collect_fingerprint
 
             cat_scores = {}
+            perplexity_value = None
             for ms in all_scores:
-                if ms.module_name != "CONTAMINATION_CHECK":
-                    cat_scores[ms.module_name] = round(ms.score * 100, 1)
+                if ms.module_name == "CONTAMINATION_CHECK":
+                    continue
+                if ms.module_name == "PERPLEXITY_BASELINE":
+                    # Extract the raw perplexity value for top-level reporting.
+                    # Don't include in cat_scores (it's not a behavioral dimension).
+                    perplexity_value = ms.details.get("perplexity")
+                    continue
+                cat_scores[ms.module_name] = round(ms.score * 100, 1)
 
             probe_details = _build_probe_details(all_results)
 
@@ -476,6 +500,7 @@ def _submit_to_community(
                 "trust_score": trust.score,
                 "grade": final_score.overall_grade,
                 "category_scores": cat_scores,
+                "perplexity": perplexity_value,  # null if not available
                 "probe_details": probe_details,
                 "total_probes": final_score.total_probes,
                 "passed_probes": final_score.passed_probes,

@@ -30,8 +30,10 @@ _SEVERITY_MAX: dict[Severity, float] = {
 
 _MODULE_DEDUCTION_CAP = 25.0
 
-# Modules excluded from trust score computation
-_EXCLUDED_MODULES = {"CONTAMINATION_CHECK"}
+# Modules excluded from trust score computation.
+# PERPLEXITY_BASELINE: raw prediction quality baseline, not a behavioral test;
+# reported separately for correlation analysis, not factored into trust.
+_EXCLUDED_MODULES = {"CONTAMINATION_CHECK", "PERPLEXITY_BASELINE"}
 
 
 @dataclass
