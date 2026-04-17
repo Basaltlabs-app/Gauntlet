@@ -452,6 +452,20 @@ class GauntletModule(ABC):
             except Exception as e:
                 elapsed = time.perf_counter() - t0
                 passed = False
+                error_str = str(e)
+
+                # Detect server errors (Ollama/llama.cpp 500s, connection
+                # failures, OOM kills) and mark them as SKIPPED rather than
+                # FAILED. Server crashes are infrastructure issues, not model
+                # behavioral failures. Scoring them as 0.0 unfairly penalizes
+                # the model for the hardware running out of memory.
+                is_server_error = (
+                    "500 Internal Server Error" in error_str
+                    or "502 Bad Gateway" in error_str
+                    or "503 Service Unavailable" in error_str
+                    or isinstance(e, (ConnectionError, OSError))
+                )
+
                 result.probe_results.append(ProbeResult(
                     probe_id=probe.id,
                     probe_name=probe.name,
@@ -460,8 +474,13 @@ class GauntletModule(ABC):
                     severity=probe.severity,
                     model_output=f"[ERROR] {type(e).__name__}: {e}",
                     expected=probe.expected,
-                    reason=f"Probe failed with error: {e}",
+                    reason=(
+                        f"Skipped (server error): {e}"
+                        if is_server_error
+                        else f"Error during probe: {e}"
+                    ),
                     duration_s=elapsed,
+                    meta={"server_error": True, "skipped": True} if is_server_error else {},
                 ))
 
             if on_probe:
@@ -497,8 +516,16 @@ class GauntletModule(ABC):
         weighted_score = 0.0
         critical_fails = 0
         high_fails = 0
+        skipped_count = 0
 
         for pr in result.probe_results:
+            # Exclude server-error probes from scoring. Ollama/llama.cpp
+            # 500s are infrastructure failures, not model behavioral failures.
+            # Counting them as 0.0 unfairly penalizes the model.
+            if pr.meta.get("server_error") or pr.meta.get("skipped"):
+                skipped_count += 1
+                continue
+
             w = severity_weights.get(pr.severity, 1.0)
             total_weight += w
             weighted_score += pr.score * w
