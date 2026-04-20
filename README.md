@@ -15,6 +15,7 @@
   <a href="#perplexity-baseline">Perplexity</a> &bull;
   <a href="#community-leaderboard">Leaderboard</a> &bull;
   <a href="#dashboard">Dashboard</a> &bull;
+  <a href="#lm-studio">LM Studio</a> &bull;
   <a href="#llamacpp">llama.cpp</a> &bull;
   <a href="#behavioral-taxonomy">Taxonomy</a> &bull;
   <a href="#scoring-methodology">Scoring</a> &bull;
@@ -212,7 +213,7 @@ Gauntlet can. Every test submission includes anonymous hardware metadata:
 | CPU architecture | arm64, x86_64 |
 | RAM | 8GB, 16GB, 32GB, 64GB |
 | OS | macOS, Linux, Windows |
-| Provider | Ollama, OpenAI, Anthropic, Google |
+| Provider | Ollama, LM Studio, llama.cpp, OpenAI, Anthropic, Google |
 
 Filter the leaderboard by any combination to see how models compare on comparable hardware configurations.
 
@@ -245,7 +246,7 @@ Public read-only endpoints at `https://gauntlet.basaltlabs.app` for building too
 |---|---|
 | `gpu_class` | apple_silicon, nvidia, amd, none |
 | `quantization` | Q4, Q8, fp16 |
-| `provider` | ollama, openai, anthropic |
+| `provider` | ollama, lmstudio, llamacpp, openai, anthropic, google |
 | `os_platform` | darwin, linux, windows |
 | `source` | cli, tui, dashboard, mcp |
 | `exclude_source` | mcp (default for community dashboard) |
@@ -520,6 +521,29 @@ gauntlet run --model lmstudio/qwen-7b
 # Or persist it
 gauntlet config --lmstudio-host=http://localhost:4321
 ```
+
+### Cloud Baselines
+
+Gauntlet can run the suite directly against OpenAI, Anthropic, and Google Gemini APIs so leaderboard entries for frontier models sit alongside local runs on comparable axes. Export an API key and use the provider prefix:
+
+```bash
+# Google Gemini (free tier available at https://aistudio.google.com/apikey)
+export GOOGLE_API_KEY=AI...
+gauntlet run --model google/gemini-2.5-flash
+gauntlet run --model google/gemini-2.5-pro
+
+# OpenAI
+export OPENAI_API_KEY=sk-...
+gauntlet run --model openai/gpt-4o-mini
+gauntlet run --model openai/gpt-4o
+
+# Anthropic Claude
+export ANTHROPIC_API_KEY=sk-ant-...
+gauntlet run --model anthropic/claude-haiku-4-5
+gauntlet run --model anthropic/claude-sonnet-4-6
+```
+
+A full frontier sweep (6 models across 3 providers) typically costs under $5. Gemini Flash is free on the API's free tier.
 
 ### llama.cpp
 
