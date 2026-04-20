@@ -17,7 +17,15 @@ from typing import Optional
 
 import httpx
 
-from gauntlet.core.config import get_ollama_host, get_llamacpp_host
+from gauntlet.core.config import (
+    get_api_key,
+    get_llamacpp_host,
+    get_lmstudio_host,
+    get_ollama_host,
+    PROVIDER_ANTHROPIC,
+    PROVIDER_GOOGLE,
+    PROVIDER_OPENAI,
+)
 
 # Cache thinking-model detection per model name (survives across ChatClient instances)
 _thinking_model_cache: dict[str, bool] = {}
@@ -64,6 +72,11 @@ class ChatClient:
         if not self._host:
             if self.provider == "llamacpp":
                 self._host = get_llamacpp_host()
+            elif self.provider == "lmstudio":
+                self._host = get_lmstudio_host()
+            elif self.provider in (PROVIDER_OPENAI, PROVIDER_ANTHROPIC, PROVIDER_GOOGLE):
+                # Cloud providers use hardcoded endpoints; _host is unused.
+                self._host = ""
             else:
                 self._host = get_ollama_host()
 
@@ -123,6 +136,14 @@ class ChatClient:
             return await self._ollama_chat(temp)
         elif self.provider == "llamacpp":
             return await self._llamacpp_chat(temp)
+        elif self.provider == "lmstudio":
+            return await self._lmstudio_chat(temp)
+        elif self.provider == PROVIDER_OPENAI:
+            return await self._openai_chat(temp)
+        elif self.provider == PROVIDER_ANTHROPIC:
+            return await self._anthropic_chat(temp)
+        elif self.provider == PROVIDER_GOOGLE:
+            return await self._google_chat(temp)
         else:
             raise NotImplementedError(f"Provider {self.provider} not yet supported for ChatClient")
 
@@ -225,6 +246,63 @@ class ChatClient:
 
         return content
 
+    async def _lmstudio_chat(self, temperature: float) -> str:
+        """Call LM Studio's local server via OpenAI-compatible /v1/chat/completions.
+
+        LM Studio exposes an OpenAI-compatible API on port 1234 by default.
+        Override with the LMSTUDIO_HOST env var (some users run on custom
+        ports). The model_name maps to whichever model is currently loaded
+        in LM Studio — use `gauntlet discover` to list loaded models.
+        """
+        url = f"{self._host}/v1/chat/completions"
+
+        payload = {
+            "model": self.model_name,
+            "messages": [
+                {"role": m.role, "content": m.content}
+                for m in self._history
+            ],
+            "temperature": temperature,
+            "max_tokens": self.max_tokens,
+            "stream": False,
+        }
+
+        timeout = httpx.Timeout(
+            connect=30.0,
+            read=self.timeout_s,
+            write=30.0,
+            pool=30.0,
+        )
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as http:
+                resp = await http.post(url, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.ReadTimeout:
+            raise TimeoutError(
+                f"LM Studio did not respond within {self.timeout_s:.0f}s. "
+                f"Model may be too large for available memory, or still loading."
+            )
+        except httpx.ConnectError:
+            raise ConnectionError(
+                f"Cannot connect to LM Studio at {self._host}. "
+                f"Open LM Studio, go to Developer > Local Server, and start the server. "
+                f"Override the host with LMSTUDIO_HOST=http://localhost:<port>."
+            )
+
+        choices = data.get("choices", [])
+        if not choices:
+            raise ValueError("LM Studio returned no choices")
+
+        content = choices[0].get("message", {}).get("content", "")
+
+        usage = data.get("usage", {})
+        self._total_tokens += usage.get("completion_tokens", 0)
+
+        self._history.append(ChatMessage(role="assistant", content=content))
+        return content
+
     async def _llamacpp_chat(self, temperature: float) -> str:
         """Call llama.cpp server via OpenAI-compatible /v1/chat/completions.
 
@@ -281,6 +359,196 @@ class ChatClient:
         # Track tokens from usage field
         usage = data.get("usage", {})
         self._total_tokens += usage.get("completion_tokens", 0)
+
+        self._history.append(ChatMessage(role="assistant", content=content))
+        return content
+
+    async def _openai_chat(self, temperature: float) -> str:
+        """Call OpenAI's Chat Completions API.
+
+        Uses OPENAI_API_KEY from the environment. Supports any OpenAI
+        model (gpt-4o, gpt-4o-mini, o1, o3, etc.). System messages pass
+        through as-is in the messages array.
+        """
+        api_key = get_api_key(PROVIDER_OPENAI)
+        if not api_key:
+            raise RuntimeError(
+                "OPENAI_API_KEY is not set. Export it before running cloud benchmarks."
+            )
+
+        url = "https://api.openai.com/v1/chat/completions"
+
+        payload: dict = {
+            "model": self.model_name,
+            "messages": [
+                {"role": m.role, "content": m.content}
+                for m in self._history
+            ],
+            "stream": False,
+        }
+        # o-series reasoning models reject temperature/max_tokens in favor of
+        # max_completion_tokens and default temp=1.
+        is_reasoning = self.model_name.startswith(("o1", "o3", "o4"))
+        if is_reasoning:
+            payload["max_completion_tokens"] = self.max_tokens
+        else:
+            payload["temperature"] = temperature
+            payload["max_tokens"] = self.max_tokens
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        timeout = httpx.Timeout(connect=30.0, read=self.timeout_s, write=30.0, pool=30.0)
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as http:
+                resp = await http.post(url, json=payload, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.ReadTimeout:
+            raise TimeoutError(
+                f"OpenAI did not respond within {self.timeout_s:.0f}s."
+            )
+
+        choices = data.get("choices", [])
+        if not choices:
+            raise ValueError("OpenAI returned no choices")
+        content = choices[0].get("message", {}).get("content", "") or ""
+
+        usage = data.get("usage", {})
+        self._total_tokens += usage.get("completion_tokens", 0)
+
+        self._history.append(ChatMessage(role="assistant", content=content))
+        return content
+
+    async def _anthropic_chat(self, temperature: float) -> str:
+        """Call Anthropic's Messages API.
+
+        Uses ANTHROPIC_API_KEY from the environment. Extracts system
+        messages into Anthropic's dedicated `system` field (Anthropic
+        doesn't accept role='system' inside the messages array).
+        """
+        api_key = get_api_key(PROVIDER_ANTHROPIC)
+        if not api_key:
+            raise RuntimeError(
+                "ANTHROPIC_API_KEY is not set. Export it before running cloud benchmarks."
+            )
+
+        url = "https://api.anthropic.com/v1/messages"
+
+        # Anthropic wants system as a top-level string; merge all system turns.
+        system_parts = [m.content for m in self._history if m.role == "system"]
+        chat_messages = [
+            {"role": m.role, "content": m.content}
+            for m in self._history
+            if m.role in ("user", "assistant")
+        ]
+
+        payload: dict = {
+            "model": self.model_name,
+            "messages": chat_messages,
+            "max_tokens": self.max_tokens,
+            "temperature": temperature,
+        }
+        if system_parts:
+            payload["system"] = "\n\n".join(system_parts)
+
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+
+        timeout = httpx.Timeout(connect=30.0, read=self.timeout_s, write=30.0, pool=30.0)
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as http:
+                resp = await http.post(url, json=payload, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.ReadTimeout:
+            raise TimeoutError(
+                f"Anthropic did not respond within {self.timeout_s:.0f}s."
+            )
+
+        # Concatenate text blocks (ignore tool-use blocks for probe answers)
+        parts = data.get("content", []) or []
+        content = "".join(b.get("text", "") for b in parts if b.get("type") == "text")
+
+        usage = data.get("usage", {})
+        self._total_tokens += usage.get("output_tokens", 0)
+
+        self._history.append(ChatMessage(role="assistant", content=content))
+        return content
+
+    async def _google_chat(self, temperature: float) -> str:
+        """Call Google's Generative Language API (Gemini).
+
+        Uses GOOGLE_API_KEY from the environment. Gemini uses role='model'
+        instead of 'assistant' and puts system instructions in a dedicated
+        `system_instruction` field.
+        """
+        api_key = get_api_key(PROVIDER_GOOGLE)
+        if not api_key:
+            raise RuntimeError(
+                "GOOGLE_API_KEY is not set. Export it before running cloud benchmarks."
+            )
+
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/"
+            f"models/{self.model_name}:generateContent?key={api_key}"
+        )
+
+        system_parts = [m.content for m in self._history if m.role == "system"]
+        contents = []
+        for m in self._history:
+            if m.role == "system":
+                continue
+            # Gemini expects 'user' | 'model' (not 'assistant')
+            role = "model" if m.role == "assistant" else m.role
+            contents.append({"role": role, "parts": [{"text": m.content}]})
+
+        payload: dict = {
+            "contents": contents,
+            "generationConfig": {
+                "temperature": temperature,
+                "maxOutputTokens": self.max_tokens,
+            },
+        }
+        if system_parts:
+            payload["system_instruction"] = {
+                "parts": [{"text": "\n\n".join(system_parts)}]
+            }
+
+        timeout = httpx.Timeout(connect=30.0, read=self.timeout_s, write=30.0, pool=30.0)
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as http:
+                resp = await http.post(url, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.ReadTimeout:
+            raise TimeoutError(
+                f"Google Gemini did not respond within {self.timeout_s:.0f}s."
+            )
+
+        # candidates[0].content.parts[0].text — but parts can be multiple
+        candidates = data.get("candidates", [])
+        if not candidates:
+            # Safety block or empty response
+            block_reason = (data.get("promptFeedback") or {}).get("blockReason")
+            raise ValueError(
+                f"Gemini returned no candidates"
+                f"{' (blocked: ' + block_reason + ')' if block_reason else ''}"
+            )
+
+        parts = (candidates[0].get("content") or {}).get("parts", []) or []
+        content = "".join(p.get("text", "") for p in parts)
+
+        usage = data.get("usageMetadata", {})
+        self._total_tokens += usage.get("candidatesTokenCount", 0)
 
         self._history.append(ChatMessage(role="assistant", content=content))
         return content

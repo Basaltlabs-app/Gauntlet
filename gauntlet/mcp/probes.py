@@ -767,7 +767,7 @@ PROBE_TEMPORAL = {
     "steps": [
         {"prompt": (
             "Alice started at 12:00 and finished at 12:45. Bob started at 12:30 and finished at 1:15. "
-            "Who took longer? Reply with ONLY the name."
+            "Who took longer? Reply with one word: 'Alice', 'Bob', or 'Neither' if they took the same time."
         )},
     ],
     "verify": lambda responses: _verify_temporal(responses[0]),

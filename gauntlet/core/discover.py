@@ -10,6 +10,7 @@ from gauntlet.core.providers.ollama import OllamaProvider
 from gauntlet.core.providers.openai_provider import OpenAIProvider
 from gauntlet.core.providers.anthropic_provider import AnthropicProvider
 from gauntlet.core.providers.google_provider import GoogleProvider
+from gauntlet.core.providers.lmstudio import LMStudioProvider
 
 
 def get_system_memory() -> dict:
@@ -80,6 +81,11 @@ class DiscoveredModel:
             return self.name
         return f"{self.provider}:{self.name}"
 
+    @property
+    def is_local(self) -> bool:
+        """Whether this model runs on local hardware (not a cloud API)."""
+        return self.provider in ("ollama", "lmstudio", "llamacpp")
+
 
 async def discover_ollama() -> list[DiscoveredModel]:
     """Discover models from local Ollama installation."""
@@ -101,6 +107,30 @@ async def discover_ollama() -> list[DiscoveredModel]:
                 quantization=m.get("quantization"),
                 family=m.get("family"),
                 multimodal=multimodal,
+            )
+        )
+    return models
+
+
+async def discover_lmstudio() -> list[DiscoveredModel]:
+    """Discover currently-loaded models from LM Studio's local server.
+
+    Returns an empty list if LM Studio isn't running or the server is off.
+    The list reflects only the models the user has loaded in LM Studio,
+    not every model on disk — loaded models are the ones runnable.
+    """
+    lmstudio = LMStudioProvider()
+    if not await lmstudio.check_connection():
+        return []
+
+    raw_models = await lmstudio.list_models()
+    models = []
+    for m in raw_models:
+        models.append(
+            DiscoveredModel(
+                name=m["name"],
+                provider="lmstudio",
+                display_name=m["name"],
             )
         )
     return models
@@ -171,6 +201,7 @@ async def discover_all() -> list[DiscoveredModel]:
 
     results = await asyncio.gather(
         discover_ollama(),
+        discover_lmstudio(),
         discover_openai(),
         discover_anthropic(),
         discover_google(),

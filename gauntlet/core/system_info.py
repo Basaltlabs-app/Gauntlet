@@ -309,7 +309,74 @@ def _get_model_metadata(model_name: str, provider: str) -> dict:
         return _get_ollama_metadata(model_name)
     elif provider == "llamacpp":
         return _get_llamacpp_metadata(model_name)
+    elif provider == "lmstudio":
+        return _get_lmstudio_metadata(model_name)
     return {}
+
+
+def _get_lmstudio_metadata(model_name: str) -> dict:
+    """Infer LM Studio model metadata from /v1/models and the model ID.
+
+    LM Studio's OpenAI-compatible API doesn't expose quantization directly,
+    but the model ID usually contains enough signal (e.g. "llama-3.2-8b-q4_k_m")
+    to infer family, parameter size, and quantization.
+    """
+    import re
+
+    meta: dict = {
+        "family": "unknown",
+        "parameter_size": "",
+        "quantization": "unknown",
+        "format": "gguf",
+        "families": [],
+    }
+
+    try:
+        import httpx
+        from gauntlet.core.config import get_lmstudio_host
+
+        host = get_lmstudio_host()
+
+        # Prefer the current model_name; fall back to whichever is loaded.
+        candidate_id = model_name
+        try:
+            resp = httpx.get(f"{host}/v1/models", timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                models = data.get("data", [])
+                ids = [m.get("id", "") for m in models if m.get("id")]
+                if model_name not in ids and ids:
+                    candidate_id = ids[0]
+        except Exception:
+            pass
+
+        lower = candidate_id.lower()
+
+        # Family inference
+        for fam in ["llama", "qwen", "gemma", "phi", "mistral",
+                    "deepseek", "yi", "falcon", "mamba", "starcoder",
+                    "codellama", "mixtral"]:
+            if fam in lower:
+                meta["family"] = fam
+                break
+
+        # Quantization from ID suffix (e.g. "-q4_k_m", "-q8_0", "-f16")
+        quant_match = re.search(
+            r"[_.-](q\d[_a-z0-9]*|f16|f32|fp16|fp32|bf16)\b",
+            lower,
+        )
+        if quant_match:
+            meta["quantization"] = quant_match.group(1).upper()
+
+        # Parameter size (e.g. "8b", "70b", "1.5b")
+        param_match = re.search(r"(\d+(?:\.\d+)?)[_.-]?b\b", lower)
+        if param_match:
+            meta["parameter_size"] = f"{param_match.group(1)}B"
+
+    except Exception:
+        pass
+
+    return meta
 
 
 def _get_ollama_metadata(model_name: str) -> dict:
@@ -482,6 +549,15 @@ def collect_fingerprint(
             fp.model_parameter_size = meta.get("parameter_size", "")
             fp.quantization = meta.get("quantization", "unknown")
             fp.model_format = meta.get("format", "unknown")
+
+    # LM Studio / llama.cpp metadata (GGUF-based, inferred from model id)
+    if provider in ("lmstudio", "llamacpp"):
+        meta = _get_model_metadata(model_name, provider)
+        if meta:
+            fp.model_family = meta.get("family", "unknown")
+            fp.model_parameter_size = meta.get("parameter_size", "")
+            fp.quantization = meta.get("quantization", "unknown")
+            fp.model_format = meta.get("format", "gguf")
 
             # Infer quant_method from format + quantization pattern.
             # GGUF quants have distinctive patterns (Q4_K_M, IQ4_XS, etc.)

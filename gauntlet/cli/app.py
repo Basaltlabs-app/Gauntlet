@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Optional
 
 import typer
@@ -53,7 +54,7 @@ def _default(ctx: typer.Context) -> None:
 def run(
     model: list[str] = typer.Option(
         None, "--model", "-m",
-        help="Model to test (e.g. ollama/qwen2.5:14b). Can specify multiple.",
+        help="Model to test (e.g. ollama/qwen2.5:14b, lmstudio/llama-3.2-8b, openai/gpt-4o). Can specify multiple.",
     ),
     profile: Optional[str] = typer.Option(
         None, "--profile", "-p",
@@ -158,9 +159,29 @@ def run(
         console.print(f"[dim]Profiles: {', '.join(available_profiles())}[/dim]")
         raise typer.Exit(0)
 
+    # Detect whether we're being invoked by an agent (non-interactive shell)
+    # vs. a human at a terminal. When an MCP client (Gemini CLI, Claude Code,
+    # Cursor, etc.) spawns `gauntlet run`, stdin/stdout aren't TTYs. We use
+    # this to hard-block local Ollama runs that would overload the user's
+    # machine without their awareness.
+    import sys as _sys
+    _is_agent = not (_sys.stdin.isatty() and _sys.stdout.isatty())
+    _agent_override = os.environ.get("GAUNTLET_ALLOW_LOCAL") == "1"
+
     # Parse model specs
     if not model:
-        print_error("No models specified. Use --model ollama/qwen2.5:14b")
+        print_error("No models specified.")
+        console.print()
+        console.print("[bold]Benchmarking yourself (the AI reading this)?[/bold]")
+        console.print("  -> STOP. Do NOT run this shell command. Use the")
+        console.print("     [cyan]gauntlet_run[/cyan] MCP tool from the gauntlet MCP server instead.")
+        console.print("     This CLI benchmarks OTHER local models — it does not score you.")
+        console.print()
+        console.print("[bold]Benchmarking a local Ollama model?[/bold]")
+        console.print("  -> Pass [cyan]--model ollama/<name>[/cyan]  (e.g. ollama/qwen2.5:14b)")
+        console.print()
+        console.print("[bold]Benchmarking a cloud API directly?[/bold]")
+        console.print("  -> Pass [cyan]--model openai/gpt-4o[/cyan] or [cyan]google/gemini-2.5-flash[/cyan] etc.")
         raise typer.Exit(1)
 
     model_specs = []
@@ -172,6 +193,45 @@ def run(
             provider = "ollama"
             name = m
         model_specs.append((provider, name))
+
+    # Agent-invoked + local models (Ollama / LM Studio / llama.cpp) = footgun.
+    # Refuse hard unless the human explicitly unlocked with
+    # GAUNTLET_ALLOW_LOCAL=1. This prevents MCP clients that shell out to
+    # "gauntlet run" from accidentally loading large local models and tanking
+    # the user's machine.
+    _LOCAL_PROVIDERS = {"ollama", "lmstudio", "llamacpp"}
+    has_local = any(p in _LOCAL_PROVIDERS for (p, _) in model_specs)
+    if _is_agent and has_local and not _agent_override:
+        print_error(
+            "Refusing to benchmark LOCAL models from a non-interactive shell."
+        )
+        console.print()
+        console.print(
+            "[bold]This invocation looks like it came from an AI agent "
+            "(MCP client / subprocess).[/bold]"
+        )
+        console.print(
+            "Loading local models (Ollama / LM Studio / llama.cpp) here can overload the user's machine."
+        )
+        console.print()
+        console.print("If you are the AI reading this:")
+        console.print("  -> Do NOT retry this command. Use the [cyan]gauntlet_run[/cyan] MCP tool.")
+        console.print("     The MCP tool benchmarks YOU (the AI); this CLI does not.")
+        console.print()
+        console.print(
+            "If you are a human and you really meant to benchmark a local model "
+            "non-interactively, set [cyan]GAUNTLET_ALLOW_LOCAL=1[/cyan] and retry."
+        )
+        raise typer.Exit(2)
+
+    # Friendly banner for interactive local benchmarks (human user).
+    if has_local and not _is_agent:
+        console.print(
+            "[yellow]Notice:[/yellow] benchmarking LOCAL model(s). "
+            "If you meant to benchmark a cloud LLM, use [cyan]--model openai/..."
+            "[/cyan] or [cyan]google/...[/cyan] — or the MCP server for self-scoring."
+        )
+        console.print()
 
     # Module filter
     module_names = None
@@ -410,8 +470,9 @@ def compare(
         models = args[:-1]
 
     if not models:
-        print_error("No models found. Is Ollama running? Do you have models installed?")
-        console.print("[dim]Run: ollama pull gemma4:e2b[/dim]")
+        print_error("No models found. Is Ollama or LM Studio running with a model loaded?")
+        console.print("[dim]Ollama:    ollama pull gemma4:e2b[/dim]")
+        console.print("[dim]LM Studio: load a model, then Developer > Local Server > Start[/dim]")
         raise typer.Exit(1)
 
     if dashboard:
@@ -534,10 +595,17 @@ async def _run_cli(
 
 
 async def _auto_select_models(max_models: int = 2) -> list[str]:
-    """Auto-detect installed models and pick the best ones to compare."""
-    from gauntlet.core.discover import discover_ollama
+    """Auto-detect installed models and pick the best ones to compare.
+
+    Checks Ollama first for backward compatibility; falls back to LM Studio
+    if Ollama has nothing loaded. Users running only LM Studio still get a
+    sensible auto-pick.
+    """
+    from gauntlet.core.discover import discover_ollama, discover_lmstudio
 
     models = await discover_ollama()
+    if not models:
+        models = await discover_lmstudio()
     if not models:
         return []
 
@@ -566,18 +634,19 @@ async def _auto_select_models(max_models: int = 2) -> list[str]:
 
 async def _interactive_setup() -> tuple[list[str], str]:
     """Interactive model selection and prompt input."""
-    from gauntlet.core.discover import discover_ollama
+    from gauntlet.core.discover import discover_ollama, discover_lmstudio
     from rich.prompt import Prompt
 
     print_header()
 
     with console.status("[bold cyan]Finding installed models..."):
         available = await discover_ollama()
+        available += await discover_lmstudio()
 
     if not available:
-        print_error("No models found. Is Ollama running?")
-        console.print("[dim]Install: https://ollama.com/download[/dim]")
-        console.print("[dim]Then: ollama pull gemma4:e2b[/dim]")
+        print_error("No models found. Is Ollama or LM Studio running with a model loaded?")
+        console.print("[dim]Ollama:    https://ollama.com/download  then  ollama pull gemma4:e2b[/dim]")
+        console.print("[dim]LM Studio: https://lmstudio.ai  then load a model and start the local server[/dim]")
         raise typer.Exit(1)
 
     # Show available models with numbers
@@ -744,8 +813,9 @@ def benchmark(
         console.print("[dim]Auto-detecting installed models...[/dim]")
         detected = asyncio.run(_auto_select_models(max_models=5))
         if not detected:
-            print_error("No models found. Is Ollama running?")
-            console.print("[dim]Run: ollama pull gemma4:e2b[/dim]")
+            print_error("No models found. Is Ollama or LM Studio running with a model loaded?")
+            console.print("[dim]Ollama:    ollama pull gemma4:e2b[/dim]")
+            console.print("[dim]LM Studio: load a model, then Developer > Local Server > Start[/dim]")
             raise typer.Exit(1)
         models = detected
 
@@ -792,9 +862,15 @@ def benchmark(
         from gauntlet.core.submit import submit_result
 
         def _submit_benchmarks():
+            from gauntlet.core.config import detect_provider
             for r in results:
                 try:
-                    fp = collect_fingerprint(r.model, "ollama")
+                    # Derive the real provider from the model spec so fingerprint
+                    # metadata lines up on the community leaderboard. Defaults to
+                    # ollama when the spec is bare (e.g. "qwen2.5:14b"), matching
+                    # existing behaviour for plain Ollama names.
+                    detected_provider, _ = detect_provider(r.model)
+                    fp = collect_fingerprint(r.model, detected_provider)
                     hw, rt, mc = fp.to_storage_dicts()
                     # Scale scores from 0-1 to 0-100 for the community API
                     raw_cats = getattr(r, "category_scores", {})
@@ -1094,14 +1170,16 @@ def leaderboard() -> None:
 @app.command()
 def config(
     ollama_host: Optional[str] = typer.Option(None, "--ollama-host", help="Set Ollama API host"),
+    lmstudio_host: Optional[str] = typer.Option(None, "--lmstudio-host", help="Set LM Studio local server host (e.g. http://localhost:1234)"),
     show_config: bool = typer.Option(False, "--show", help="Show current config"),
 ) -> None:
     """View or modify Gauntlet configuration."""
-    from gauntlet.core.config import load_config, save_config, get_ollama_host
+    from gauntlet.core.config import load_config, save_config, get_ollama_host, get_lmstudio_host
 
     if show_config:
         cfg = load_config()
         console.print(f"Ollama host: {get_ollama_host()}")
+        console.print(f"LM Studio host: {get_lmstudio_host()}")
         for k, v in cfg.items():
             console.print(f"{k}: {v}")
         return
@@ -1111,6 +1189,13 @@ def config(
         cfg["ollama_host"] = ollama_host
         save_config(cfg)
         console.print(f"[green]Ollama host set to: {ollama_host}[/green]")
+
+    if lmstudio_host:
+        cfg = load_config()
+        cfg["lmstudio_host"] = lmstudio_host
+        save_config(cfg)
+        console.print(f"[green]LM Studio host set to: {lmstudio_host}[/green]")
+        console.print("[dim]Note: LMSTUDIO_HOST env var takes precedence if set.[/dim]")
 
 
 @app.command()

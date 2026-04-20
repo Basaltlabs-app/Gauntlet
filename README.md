@@ -496,12 +496,30 @@ pip install gauntlet-cli[all-providers]  # All cloud providers
 | Provider | Configuration | Cost |
 |---|---|---|
 | [Ollama](https://ollama.com) (local) | `ollama pull qwen3.5:4b` | Free |
+| [LM Studio](https://lmstudio.ai) (local) | Load a model, then start Developer > Local Server | Free |
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) (local) | `llama-server -m model.gguf` | Free |
 | OpenAI API | `export OPENAI_API_KEY=sk-...` | Pay-per-use |
 | Anthropic API | `export ANTHROPIC_API_KEY=sk-ant-...` | Pay-per-use |
 | Google AI API | `export GOOGLE_API_KEY=AI...` | Pay-per-use |
 
-Ollama and llama.cpp run models locally with zero external dependency. Cloud providers are optional and can be combined with local models.
+Ollama, LM Studio, and llama.cpp run models locally with zero external dependency. Cloud providers are optional and can be combined with local models.
+
+### LM Studio
+
+Gauntlet supports [LM Studio](https://lmstudio.ai) via its OpenAI-compatible local server. Load a model in LM Studio, start the server under **Developer > Local Server**, then use the `lmstudio:` prefix:
+
+```bash
+# Default host: http://localhost:1234
+gauntlet discover                                # lists currently-loaded models
+gauntlet run --model lmstudio/llama-3.2-8b-q4_K_M
+
+# Custom port (LM Studio lets users change it in-app)
+export LMSTUDIO_HOST=http://localhost:4321
+gauntlet run --model lmstudio/qwen-7b
+
+# Or persist it
+gauntlet config --lmstudio-host=http://localhost:4321
+```
 
 ### llama.cpp
 

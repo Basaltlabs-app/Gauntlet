@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased]
+
+### Features
+- **LM Studio provider** (closes #2): first-class support for [LM Studio](https://lmstudio.ai)'s OpenAI-compatible local server. Run benchmarks with `gauntlet run --model lmstudio/<name>`; `gauntlet discover` lists currently-loaded models. Host configurable via `LMSTUDIO_HOST` env var, `gauntlet config --lmstudio-host`, or the default `http://localhost:1234`. Metadata (family, parameter size, quantization) inferred from the model ID.
+- **MCP server improvements**:
+  - Self-driving tool instructions so MCP clients (Claude Code, Gemini CLI, Cursor) can run the full suite without custom user prompts — includes explicit "do NOT shell out" directives.
+  - Auto-detects the client app via `Context.session.client_params.clientInfo`, with a clear separation between client app and model identifier.
+  - New `gauntlet_status(session_id)` tool replays the current probe on demand for resumability.
+
+### Fixes
+- **Temporal Reasoning probe**: prompt previously said "Reply with ONLY the name" despite the correct answer being neither Alice nor Bob. Some models (notably Gemini 2.5 Pro) looped for minutes trying to resolve the bind before their own CLI aborted. Prompt now lists `'Alice' | 'Bob' | 'Neither'` explicitly. Verify function unchanged (still accepts equal/both/tie/neither).
+
+### Safety
+- **Agent-invocation guard on `gauntlet run`**: when stdin/stdout aren't TTYs (the tell for MCP-client subprocess spawns), refuse to benchmark local models (Ollama / LM Studio / llama.cpp) unless `GAUNTLET_ALLOW_LOCAL=1` is set. Prevents MCP agents from accidentally loading large local models and overloading the user's machine. Cloud providers and interactive humans are unaffected.
+
+### Tests
+- 12 new LM Studio tests: host resolution precedence (env > config > default), spec parsing, factory wiring, metadata inference across 5 model-id patterns.
+
+---
+
 ## [2.0.3] - 2026-04-17
 
 ### Fixes

@@ -25,7 +25,7 @@ import os
 import uuid
 from typing import Optional
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 
 from gauntlet.mcp.runner import GauntletRunner
 
@@ -163,38 +163,94 @@ def _normalize_model_name(name: str) -> str:
 mcp = FastMCP(
     "Gauntlet",
     instructions=(
-        "Behavioral benchmark — YOU are the test subject.\n"
-        "1. Call gauntlet_run(client_name='your-model-name') to start.\n"
-        "2. Read the PROMPT in the response.\n"
-        "3. Call gauntlet_respond(response='your actual answer text', session_id='...') to answer.\n"
-        "4. Repeat step 2-3 until the benchmark is complete.\n"
-        "IMPORTANT: gauntlet_respond() response must be your real answer, never null or empty."
+        "Behavioral benchmark — YOU (the AI reading this) are the test subject.\n"
+        "\n"
+        "CRITICAL — do NOT shell out:\n"
+        "  If the user asks you to 'run gauntlet', 'benchmark yourself', 'test\n"
+        "  your behavior', or anything similar, you MUST use the gauntlet_*\n"
+        "  MCP tools below. Do NOT execute `gauntlet` in a shell. The shell\n"
+        "  command benchmarks OTHER local models via Ollama — it does NOT\n"
+        "  benchmark you, and it can crash the user's machine by trying to\n"
+        "  run large models locally. The MCP tools are the only correct path.\n"
+        "\n"
+        "Run loop:\n"
+        "  1. Call gauntlet_run(client_name='<your exact model id>') to start.\n"
+        "     Pass your real model identifier (e.g. 'gemini-2.5-pro',\n"
+        "     'claude-sonnet-4-6', 'gpt-4o'). Results land on a public leaderboard,\n"
+        "     so accuracy matters. The client app you're running inside will be\n"
+        "     detected automatically but is NOT your model name.\n"
+        "  2. Read the PROMPT in the response.\n"
+        "  3. Answer it yourself using only your own reasoning — do NOT use other\n"
+        "     tools, do NOT shell out, do NOT look things up.\n"
+        "  4. Call gauntlet_respond(response='<your answer>', session_id='<id>').\n"
+        "  5. Repeat 2–4 until you receive a final score.\n"
+        "\n"
+        "Other tools:\n"
+        "  - gauntlet_status(session_id) — check progress / resume a session.\n"
+        "  - gauntlet_results() — view the most recent run.\n"
+        "  - gauntlet_leaderboard(tier='') — view rankings.\n"
+        "\n"
+        "IMPORTANT: response must be your real answer, never null or empty."
     ),
 )
 
 
+def _detect_client_app(ctx: Optional[Context]) -> str:
+    """Best-effort detection of the MCP client application name.
+
+    Returns the client app's self-reported name (e.g. 'gemini-cli',
+    'claude-code', 'cursor'). This is NOT the model — clients don't
+    report which LLM is driving them over MCP.
+    """
+    if ctx is None:
+        return ""
+    try:
+        client_info = ctx.session.client_params.clientInfo
+        return (client_info.title or client_info.name or "").strip()
+    except Exception:
+        return ""
+
+
 @mcp.tool()
 def gauntlet_run(
-    client_name: str = "unknown",
+    client_name: str = "",
     quick: bool = False,
+    ctx: Context = None,
 ) -> str:
     """Start a new Gauntlet behavioral benchmark. YOU are the test subject.
 
-    This returns a PROMPT. You must ANSWER it by calling gauntlet_respond()
-    with your answer text and the session_id shown below.
+    Use this tool (NOT the shell) whenever the user asks to run Gauntlet,
+    benchmark themselves, or test your behavior. Running `gauntlet` in the
+    shell benchmarks OTHER local models via Ollama — it does not benchmark
+    you and can overload the user's machine.
 
-    Flow: gauntlet_run() -> read prompt -> gauntlet_respond(answer, session_id) -> repeat
+    Returns a SESSION_ID and the first PROMPT. Read the prompt, answer it
+    yourself using only your own reasoning (no shell, no other tools, no
+    lookups), then call gauntlet_respond(response, session_id). Repeat until
+    the benchmark completes.
 
     Args:
-        client_name: REQUIRED. Your model name (e.g. 'claude-sonnet-4-6', 'gpt-4o').
-        quick: Quick suite (17 tests) vs full (56).
+        client_name: Your exact model identifier — e.g. 'gemini-2.5-pro',
+            'claude-sonnet-4-6', 'gpt-4o'. Results land on a public leaderboard,
+            so pass the real model ID, not the client app name. If omitted,
+            we fall back to the detected client app, which is usually wrong
+            for scoring (e.g. 'gemini-cli' ≠ 'gemini-2.5-pro').
+        quick: Quick suite (~17 probes) vs full suite (~84 probes).
     """
-    normalized = _normalize_model_name(client_name)
+    client_app = _detect_client_app(ctx)
+    raw_name = client_name.strip() if client_name else ""
+
+    # Fall back to detected client app only if nothing was passed
+    if not raw_name and client_app:
+        raw_name = client_app
+
+    normalized = _normalize_model_name(raw_name)
     if not normalized:
+        hint = f" (detected client app: '{client_app}' — pass your MODEL id, not the app)" if client_app else ""
         return (
-            "ERROR: client_name is required. Pass your model name "
-            "(e.g. client_name='claude-sonnet-4-6' or 'gpt-4o'). "
-            "Results without a model name are not saved."
+            "ERROR: client_name is required. Pass your exact model id "
+            "(e.g. client_name='gemini-2.5-pro' or 'claude-sonnet-4-6')."
+            f"{hint} Results without a model name are not saved."
         )
 
     # Opportunistic cleanup: purge orphaned sessions older than 1 hour
@@ -202,10 +258,18 @@ def gauntlet_run(
 
     sid = str(uuid.uuid4())
     runner = GauntletRunner(quick=quick, client_name=normalized)
+    # Stash the detected client app for observability (not used for scoring)
+    try:
+        setattr(runner, "client_app", client_app)
+    except Exception:
+        pass
     result = runner.advance()
     _save_runner(sid, runner)
 
-    header = f"SESSION: {sid}\n{'=' * 50}\n\n"
+    header = f"SESSION: {sid}\nModel: {normalized}"
+    if client_app and client_app.lower() != normalized.lower():
+        header += f"  (client app: {client_app})"
+    header += f"\n{'=' * 50}\n\n"
     return header + result["message"] + (
         f"\n\n---\nIMPORTANT: To answer, call gauntlet_respond(response=\"<your answer>\", session_id=\"{sid}\")"
     )
@@ -261,6 +325,65 @@ def gauntlet_respond(
     return result["message"] + (
         f"\n\n---\nCall gauntlet_respond(response=\"<your answer>\", session_id=\"{session_id}\")"
     )
+
+
+@mcp.tool()
+def gauntlet_status(session_id: str) -> str:
+    """Check progress of an in-flight Gauntlet session.
+
+    Use this to resume a dropped connection or verify where you are in the
+    suite. Returns the current probe prompt (so you can continue) plus
+    progress counters.
+
+    Args:
+        session_id: The session_id returned by gauntlet_run().
+    """
+    if not session_id or not session_id.strip():
+        return "ERROR: session_id is required."
+
+    runner = _get_runner(session_id)
+    if not runner:
+        return (
+            f"ERROR: Unknown or expired session '{session_id}'. "
+            "Start a new run by calling gauntlet_run()."
+        )
+
+    if runner.finished:
+        return (
+            f"Session {session_id} is already complete. "
+            "Call gauntlet_results() to view the scorecard."
+        )
+
+    model = getattr(runner, "client_name", "unknown")
+    current_idx = getattr(runner, "current_test_idx", 0)
+    total = getattr(runner, "total_tests", 0) or 0
+    current_test = getattr(runner, "current_test", None)
+
+    # Reconstruct the current prompt without mutating runner state.
+    # advance(None) on a started session errors out ("expected a response"),
+    # so we replay via _send_step using the current probe + step index.
+    current_prompt = ""
+    try:
+        if current_test is not None and current_idx > 0 and current_idx <= len(runner.suite):
+            probe = runner.suite[current_idx - 1]
+            step_idx = current_test.current_step
+            replay = runner._send_step(probe, step_idx)
+            current_prompt = replay.get("message", "") if isinstance(replay, dict) else ""
+    except Exception as e:
+        logger.debug(f"gauntlet_status replay failed: {e}")
+
+    progress = f"Progress: {current_idx}/{total} probes\n" if total else ""
+    header = (
+        f"SESSION: {session_id}\n"
+        f"Model: {model}\n"
+        f"{progress}"
+        f"{'=' * 50}\n\n"
+    )
+    footer = (
+        f"\n\n---\nTo answer, call gauntlet_respond(response=\"<your answer>\", "
+        f"session_id=\"{session_id}\")"
+    )
+    return header + (current_prompt or "(Could not replay current prompt. Session state may be corrupted — start a new run with gauntlet_run().)") + footer
 
 
 @mcp.tool()

@@ -1234,10 +1234,15 @@ class BenchmarkScreen(Screen):
                 f"    [{idx}/{total}]  {icon}  {name}\n",
             )
 
+        # Derive the real provider from the model spec — users may pass
+        # lmstudio:* or llamacpp:* into the TUI, not just plain Ollama names.
+        from gauntlet.core.config import detect_provider
+        provider, clean_model = detect_provider(model_name)
+
         try:
             results, score, _trust = asyncio.run(run_gauntlet(
-                model_name=model_name,
-                provider="ollama",
+                model_name=clean_model,
+                provider=provider,
                 profile="assistant",
                 quick=self._quick,
                 config={"on_probe_complete": on_probe},

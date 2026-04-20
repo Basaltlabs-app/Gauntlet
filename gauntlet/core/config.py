@@ -36,9 +36,13 @@ PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_GOOGLE = "google"
 PROVIDER_OPENAI_COMPAT = "openai-compatible"
 PROVIDER_LLAMACPP = "llamacpp"
+PROVIDER_LMSTUDIO = "lmstudio"
 
 # llama.cpp defaults
 DEFAULT_LLAMACPP_HOST = "http://localhost:8080"
+
+# LM Studio defaults (LM Studio's built-in local server)
+DEFAULT_LMSTUDIO_HOST = "http://localhost:1234"
 
 
 @dataclass
@@ -57,14 +61,38 @@ def ensure_gauntlet_dir() -> Path:
     return GAUNTLET_DIR
 
 
+def _host_from_config(env_var: str, config_key: str, default: str) -> str:
+    """Resolve a host with precedence: env var > config file > default."""
+    env_val = os.environ.get(env_var)
+    if env_val:
+        return env_val
+    try:
+        cfg = load_config()
+        if cfg.get(config_key):
+            return cfg[config_key]
+    except Exception:
+        pass
+    return default
+
+
 def get_ollama_host() -> str:
-    """Get the Ollama API host from env or default."""
-    return os.environ.get("OLLAMA_HOST", DEFAULT_OLLAMA_HOST)
+    """Get the Ollama API host (env > config > default)."""
+    return _host_from_config("OLLAMA_HOST", "ollama_host", DEFAULT_OLLAMA_HOST)
 
 
 def get_llamacpp_host() -> str:
-    """Get the llama.cpp server host from env or default."""
-    return os.environ.get("LLAMACPP_HOST", DEFAULT_LLAMACPP_HOST)
+    """Get the llama.cpp server host (env > config > default)."""
+    return _host_from_config("LLAMACPP_HOST", "llamacpp_host", DEFAULT_LLAMACPP_HOST)
+
+
+def get_lmstudio_host() -> str:
+    """Get the LM Studio local server host (env > config > default).
+
+    LM Studio lets users change the server port inside the app. Set the
+    LMSTUDIO_HOST environment variable (e.g. http://localhost:4321) or
+    persist via `gauntlet config --lmstudio-host=http://localhost:4321`.
+    """
+    return _host_from_config("LMSTUDIO_HOST", "lmstudio_host", DEFAULT_LMSTUDIO_HOST)
 
 
 def detect_provider(model_name: str) -> tuple[str, str]:
@@ -76,13 +104,15 @@ def detect_provider(model_name: str) -> tuple[str, str]:
         "openai:gpt-4o"              -> (openai, gpt-4o)
         "anthropic:claude-sonnet-4-20250514" -> (anthropic, claude-sonnet-4-20250514)
         "google:gemini-2.0-flash"    -> (google, gemini-2.0-flash)
+        "lmstudio:llama-3.2-8b"      -> (lmstudio, llama-3.2-8b)
+        "llamacpp:model"             -> (llamacpp, model)
         "http://host:port/v1:model"  -> (openai-compatible, model) with base_url
     """
     if ":" in model_name:
         prefix, _, rest = model_name.partition(":")
 
         # Check for known providers
-        if prefix in (PROVIDER_OLLAMA, PROVIDER_OPENAI, PROVIDER_ANTHROPIC, PROVIDER_GOOGLE, PROVIDER_LLAMACPP):
+        if prefix in (PROVIDER_OLLAMA, PROVIDER_OPENAI, PROVIDER_ANTHROPIC, PROVIDER_GOOGLE, PROVIDER_LLAMACPP, PROVIDER_LMSTUDIO):
             return prefix, rest
 
         # Check for URL-based custom endpoint (openai-compatible)
@@ -133,6 +163,10 @@ def resolve_model(model_spec: str) -> ProviderConfig:
         base_url, model_name = model_name.split("||", 1)
     elif provider == PROVIDER_OLLAMA:
         base_url = get_ollama_host()
+    elif provider == PROVIDER_LMSTUDIO:
+        base_url = get_lmstudio_host()
+    elif provider == PROVIDER_LLAMACPP:
+        base_url = get_llamacpp_host()
 
     api_key = get_api_key(provider)
 

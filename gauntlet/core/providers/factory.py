@@ -5,6 +5,7 @@ from __future__ import annotations
 from gauntlet.core.config import (
     PROVIDER_ANTHROPIC,
     PROVIDER_GOOGLE,
+    PROVIDER_LMSTUDIO,
     PROVIDER_OLLAMA,
     PROVIDER_OPENAI,
     PROVIDER_OPENAI_COMPAT,
@@ -14,6 +15,7 @@ from gauntlet.core.config import (
 from gauntlet.core.providers.anthropic_provider import AnthropicProvider
 from gauntlet.core.providers.base import LLMProvider
 from gauntlet.core.providers.google_provider import GoogleProvider
+from gauntlet.core.providers.lmstudio import LMStudioProvider
 from gauntlet.core.providers.ollama import OllamaProvider
 from gauntlet.core.providers.openai_provider import OpenAIProvider
 
@@ -34,6 +36,10 @@ def create_provider(config: ProviderConfig) -> tuple[LLMProvider, str]:
 
     if config.provider == PROVIDER_OLLAMA:
         provider = OllamaProvider(base_url=config.base_url or "http://localhost:11434")
+        return provider, model
+
+    if config.provider == PROVIDER_LMSTUDIO:
+        provider = LMStudioProvider(base_url=config.base_url)
         return provider, model
 
     if config.provider == PROVIDER_OPENAI:
