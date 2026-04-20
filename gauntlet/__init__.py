@@ -1,5 +1,5 @@
 """Gauntlet - Behavioral reliability under pressure."""
 
-__version__ = "2.0.3"
+__version__ = "2.1.0"
 
 __all__ = ["__version__"]

@@ -1,9 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [2.1.0] - 2026-04-20
 
 ### Features
 - **LM Studio provider** (closes #2): first-class support for [LM Studio](https://lmstudio.ai)'s OpenAI-compatible local server. Run benchmarks with `gauntlet run --model lmstudio/<name>`; `gauntlet discover` lists currently-loaded models. Host configurable via `LMSTUDIO_HOST` env var, `gauntlet config --lmstudio-host`, or the default `http://localhost:1234`. Metadata (family, parameter size, quantization) inferred from the model ID.
+- **Cloud ChatClient wiring**: `gauntlet run --model openai/<id>`, `anthropic/<id>`, and `google/<id>` now work directly (previously `NotImplementedError`). Enables leaderboard baselines for GPT-4o, Claude, and Gemini — typical full-sweep cost is under $5, and Gemini has a free tier.
 - **MCP server improvements**:
   - Self-driving tool instructions so MCP clients (Claude Code, Gemini CLI, Cursor) can run the full suite without custom user prompts — includes explicit "do NOT shell out" directives.
   - Auto-detects the client app via `Context.session.client_params.clientInfo`, with a clear separation between client app and model identifier.
@@ -11,9 +12,15 @@
 
 ### Fixes
 - **Temporal Reasoning probe**: prompt previously said "Reply with ONLY the name" despite the correct answer being neither Alice nor Bob. Some models (notably Gemini 2.5 Pro) looped for minutes trying to resolve the bind before their own CLI aborted. Prompt now lists `'Alice' | 'Bob' | 'Neither'` explicitly. Verify function unchanged (still accepts equal/both/tie/neither).
+- **Leaderboard provider mis-attribution**: `collect_fingerprint(r.model, "ollama")` hardcoded the provider when submitting results, so non-Ollama runs appeared on the leaderboard as Ollama. Now derived via `detect_provider()`. Affected `gauntlet quick` and the TUI path.
 
 ### Safety
 - **Agent-invocation guard on `gauntlet run`**: when stdin/stdout aren't TTYs (the tell for MCP-client subprocess spawns), refuse to benchmark local models (Ollama / LM Studio / llama.cpp) unless `GAUNTLET_ALLOW_LOCAL=1` is set. Prevents MCP agents from accidentally loading large local models and overloading the user's machine. Cloud providers and interactive humans are unaffected.
+
+### Polish
+- Error messages, `_auto_select_models()`, and the interactive setup now include LM Studio alongside Ollama — no more "Is Ollama running?" when LM Studio is loaded.
+- Host resolution honors the config file for Ollama and LM Studio (env > file > default); persistent `gauntlet config --ollama-host` and `--lmstudio-host` flags now actually take effect.
+- README: new LM Studio and Cloud Baselines sections, updated provider filter tables.
 
 ### Tests
 - 12 new LM Studio tests: host resolution precedence (env > config > default), spec parsing, factory wiring, metadata inference across 5 model-id patterns.
