@@ -177,6 +177,56 @@ def _detect_cpu_model() -> str:
     return platform.machine()
 
 
+def _nvidia_name_from_lspci(raw_output: str | None = None) -> Optional[str]:
+    """Extract an NVIDIA GPU model name from `lspci` output.
+
+    Used as a fallback when `nvidia-smi` isn't available (some server
+    installs, minimal containers, distro variations). Parses lines like:
+
+        01:00.0 VGA compatible controller: NVIDIA Corporation GA102 [GeForce RTX 3090] (rev a1)
+
+    Preference order for the extracted name:
+      1. Whatever is inside square brackets (marketing name, e.g. "GeForce RTX 3090").
+      2. Substring after "NVIDIA Corporation " (codename, e.g. "GA102").
+
+    Args:
+        raw_output: Optional pre-captured lspci output for testability.
+            If None, `lspci` is invoked via _run_cmd.
+
+    Returns:
+        First NVIDIA GPU name found, or None if nothing matched / lspci missing.
+    """
+    if raw_output is None:
+        raw_output = _run_cmd(["lspci"])
+    if not raw_output:
+        return None
+
+    for line in raw_output.split("\n"):
+        if "VGA compatible controller" not in line or "NVIDIA" not in line:
+            continue
+        # Prefer the marketing name in brackets.
+        lb = line.find("[")
+        rb = line.find("]", lb + 1) if lb != -1 else -1
+        if lb != -1 and rb != -1 and rb > lb + 1:
+            name = line[lb + 1:rb].strip()
+            if name:
+                return name
+        # Fallback to the codename after "NVIDIA Corporation ".
+        marker = "NVIDIA Corporation "
+        idx = line.find(marker)
+        if idx != -1:
+            rest = line[idx + len(marker):].strip()
+            # Strip trailing "(rev ...)" and any bracketed content.
+            for sep in (" (", " ["):
+                cut = rest.find(sep)
+                if cut != -1:
+                    rest = rest[:cut].strip()
+            # Take just the first token (the codename) to avoid noise.
+            if rest:
+                return rest.split()[0]
+    return None
+
+
 def _detect_gpu_info() -> tuple[str, str, float]:
     """Detect GPU class, name, and VRAM.
 
@@ -210,6 +260,11 @@ def _detect_gpu_info() -> tuple[str, str, float]:
             except (ValueError, IndexError):
                 pass
         return "nvidia", nvidia_name.split("\n")[0], vram_gb
+
+    # Try lspci for GPU name (handles hosts without nvidia-smi on PATH)
+    lspci_name = _nvidia_name_from_lspci()
+    if lspci_name:
+        return "nvidia", lspci_name, 0.0  # VRAM unknown without nvidia-smi
 
     # Check for NVIDIA driver without nvidia-smi
     if Path("/proc/driver/nvidia/version").exists():
