@@ -619,48 +619,78 @@ async def survey_handler(request: Request) -> Response:
 # Badge SVG generation
 # ---------------------------------------------------------------------------
 
-# Grade-to-color mapping for badges
-_BADGE_COLORS = {
-    "A": "#4c1",
-    "B": "#a4a61d",
-    "C": "#dfb317",
-    "D": "#fe7d37",
-    "F": "#e05d44",
+# ---------------------------------------------------------------------------
+# Brand-coloured badges
+#
+# Certification thresholds mirror the leaderboard front-end:
+#   Gold   — score >= 90 and tests >= 20
+#   Silver — score >= 75 and tests >= 10
+#   Bronze — score >= 60 and tests >= 5
+#   Tested — has at least one run but under the Bronze floor
+# ---------------------------------------------------------------------------
+
+_BADGE_LABEL_BG = "#13111c"   # --color-ink
+_BADGE_LABEL_FG = "#ede6dc"   # --color-cream
+_BADGE_TIERS = {
+    "gold":   {"color": "#c4a05a", "text_fg": "#1a1410", "label": "Gold"},
+    "silver": {"color": "#b0a69c", "text_fg": "#1a1410", "label": "Silver"},
+    "bronze": {"color": "#c87850", "text_fg": "#ffffff", "label": "Bronze"},
+    "tested": {"color": "#b08d6e", "text_fg": "#1a1410", "label": "Tested"},
+    "none":   {"color": "#7a6e62", "text_fg": "#ede6dc", "label": "no data"},
 }
 
-_BADGE_GRAY = "#9f9f9f"
+
+def _certify(score: float, tests: int) -> str:
+    if score is None or tests is None:
+        return "none"
+    if score >= 90 and tests >= 20:
+        return "gold"
+    if score >= 75 and tests >= 10:
+        return "silver"
+    if score >= 60 and tests >= 5:
+        return "bronze"
+    if tests >= 1:
+        return "tested"
+    return "none"
 
 
-def _generate_badge_svg(label: str, value: str, color: str) -> str:
-    """Generate a shields.io-style SVG badge."""
-    label_width = len(label) * 6.5 + 10
-    value_width = len(value) * 6.5 + 10
+def _generate_badge_svg(label: str, value: str, value_color: str, value_fg: str = "#ffffff") -> str:
+    """Render a Gauntlet-branded SVG badge with ink label + tier-coloured value."""
+    # DM Mono is ~6.8px per char at 11px. Labels use slightly wider tracking.
+    label_width = int(len(label) * 6.9) + 14
+    value_width = int(len(value) * 6.8) + 14
     total_width = label_width + value_width
-    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{total_width}" height="20">
-  <linearGradient id="b" x2="0" y2="100%">
-    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
-    <stop offset="1" stop-opacity=".1"/>
+    height = 22
+    radius = 4
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{total_width}" height="{height}" role="img" aria-label="{label}: {value}">
+  <title>{label}: {value}</title>
+  <linearGradient id="sheen" x2="0" y2="100%">
+    <stop offset="0" stop-color="#ffffff" stop-opacity=".10"/>
+    <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+    <stop offset="1" stop-color="#000000" stop-opacity=".08"/>
   </linearGradient>
-  <clipPath id="a"><rect width="{total_width}" height="20" rx="3"/></clipPath>
-  <g clip-path="url(#a)">
-    <rect width="{label_width}" height="20" fill="#555"/>
-    <rect x="{label_width}" width="{value_width}" height="20" fill="{color}"/>
-    <rect width="{total_width}" height="20" fill="url(#b)"/>
+  <clipPath id="clip"><rect width="{total_width}" height="{height}" rx="{radius}"/></clipPath>
+  <g clip-path="url(#clip)">
+    <rect width="{label_width}" height="{height}" fill="{_BADGE_LABEL_BG}"/>
+    <rect x="{label_width}" width="{value_width}" height="{height}" fill="{value_color}"/>
+    <rect width="{total_width}" height="{height}" fill="url(#sheen)"/>
   </g>
-  <g fill="#fff" text-anchor="middle" font-family="Verdana,sans-serif" font-size="11">
-    <text x="{label_width/2}" y="15" fill="#010101" fill-opacity=".3">{label}</text>
-    <text x="{label_width/2}" y="14">{label}</text>
-    <text x="{label_width + value_width/2}" y="15" fill="#010101" fill-opacity=".3">{value}</text>
-    <text x="{label_width + value_width/2}" y="14">{value}</text>
+  <g font-family="ui-monospace,DM Mono,Menlo,Consolas,monospace" font-size="11" font-weight="500" text-anchor="middle">
+    <text x="{label_width/2:.1f}" y="15" fill="{_BADGE_LABEL_FG}" letter-spacing="0.4">{label}</text>
+    <text x="{label_width + value_width/2:.1f}" y="15" fill="{value_fg}" letter-spacing="0.2">{value}</text>
   </g>
 </svg>'''
 
 
 async def badge_handler(request: Request) -> Response:
-    """GET /api/badge?model=qwen2.5:14b&tier=CONSUMER_MID&format=svg
+    """GET /api/badge?model=qwen2.5:14b&tier=CONSUMER_MID
 
-    Returns an SVG badge showing the model's grade on the specified tier.
-    Designed for embedding in READMEs and documentation.
+    Embeddable SVG badge showing the model's Gauntlet certification tier
+    and behavioural score. Designed for HuggingFace / GitHub READMEs.
+
+    Query params:
+        model: model name (required for meaningful data)
+        tier:  optional hardware tier filter (CLOUD / CONSUMER_HIGH / ...)
     """
     model = request.query_params.get("model", "")
     tier = request.query_params.get("tier", "")
@@ -671,54 +701,52 @@ async def badge_handler(request: Request) -> Response:
         "Cache-Control": "public, max-age=3600",
     }
 
-    if not model:
-        svg = _generate_badge_svg("gauntlet", "no data", _BADGE_GRAY)
+    def _no_data() -> Response:
+        none = _BADGE_TIERS["none"]
+        svg = _generate_badge_svg("Gauntlet", none["label"], none["color"], none["text_fg"])
         return Response(svg, media_type="image/svg+xml", headers=badge_headers)
 
-    # Look up model data
+    if not model:
+        return _no_data()
+
     from gauntlet.mcp.history_store import is_available
     if not is_available():
-        svg = _generate_badge_svg("gauntlet", "no data", _BADGE_GRAY)
-        return Response(svg, media_type="image/svg+xml", headers=badge_headers)
+        return _no_data()
 
     try:
+        score = None
+        tests = 0
         if tier:
-            # Tier-specific lookup
             from gauntlet.mcp.history_store import get_tier_leaderboard
             models = get_tier_leaderboard(tier, limit=200)
             match = next((m for m in models if m["model_name"] == model), None)
             if match:
-                grade = match.get("grade", "?")
                 score = match.get("mean", 0)
-            else:
-                grade = None
-                score = None
+                tests = match.get("sample_size", 0) or 0
         else:
-            # Global lookup
             from gauntlet.mcp.history_store import get_model_detail
             detail = get_model_detail(model)
             if detail:
-                grade = detail.get("overall", {}).get("grade", "?")
                 score = detail.get("overall", {}).get("avg_score", 0)
-            else:
-                grade = None
-                score = None
+                tests = detail.get("overall", {}).get("test_count", 0) or 0
     except Exception:
-        grade = None
         score = None
+        tests = 0
 
-    if grade is None:
-        svg = _generate_badge_svg("gauntlet", "no data", _BADGE_GRAY)
-        return Response(svg, media_type="image/svg+xml", headers=badge_headers)
+    if score is None:
+        return _no_data()
 
-    # Build label and value
-    label = "gauntlet"
-    # Use just the first letter of grade for color mapping
-    grade_letter = grade[0].upper() if grade and grade[0].upper() in _BADGE_COLORS else "F"
-    color = _BADGE_COLORS.get(grade_letter, _BADGE_GRAY)
+    tier_key = _certify(score, tests)
+    tier_info = _BADGE_TIERS[tier_key]
+    # "82 · Silver" for certified, "82" for tested-but-uncertified
+    if tier_key in ("gold", "silver", "bronze"):
+        value = f"{score:.0f} \u00b7 {tier_info['label']}"
+    elif tier_key == "tested":
+        value = f"{score:.0f}"
+    else:
+        value = tier_info["label"]
 
-    value = f"{grade} ({score:.1f})" if isinstance(score, (int, float)) and score > 0 else grade
-    svg = _generate_badge_svg(label, value, color)
+    svg = _generate_badge_svg("Gauntlet", value, tier_info["color"], tier_info["text_fg"])
     return Response(svg, media_type="image/svg+xml", headers=badge_headers)
 
 
