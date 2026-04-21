@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.1.1] - 2026-04-21
+
+### Features
+- **Hardware detection — `lspci` fallback for NVIDIA GPU names**: when `nvidia-smi` isn't on PATH (server builds, stripped-down containers, some distros), `_detect_gpu_info()` now parses `lspci` output to extract the GPU model name (e.g. "GeForce RTX 3090"). Previously these runs submitted with `gpu_name="unknown"`, polluting the community leaderboard. Includes 5 parse tests covering bracketed / non-bracketed output, multi-GPU selection, AMD-only lines, and empty input.
+
+### API / Embeds
+- **`/api/badge` rebrand**: dropped the A–F / shields.io colour ramp. Badges now use Gauntlet's actual certification system (Gold / Silver / Bronze / Tested / no data) with the ember palette. A 71-score model that previously rendered as hostile red "F (71.1)" now renders as warm copper "71 · Bronze" — something a model author actually wants in their HuggingFace / GitHub README.
+- Added `viewBox` to the badge SVG so resizing via `<img width="...">` preserves aspect ratio and text crispness.
+- Added `role="img"` + `<title>` for screen-reader accessibility.
+
+---
+
 ## [2.1.0] - 2026-04-20
 
 ### Features
