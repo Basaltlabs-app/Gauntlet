@@ -662,7 +662,7 @@ def _generate_badge_svg(label: str, value: str, value_color: str, value_fg: str 
     total_width = label_width + value_width
     height = 22
     radius = 4
-    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{total_width}" height="{height}" role="img" aria-label="{label}: {value}">
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{total_width}" height="{height}" viewBox="0 0 {total_width} {height}" role="img" aria-label="{label}: {value}">
   <title>{label}: {value}</title>
   <linearGradient id="sheen" x2="0" y2="100%">
     <stop offset="0" stop-color="#ffffff" stop-opacity=".10"/>
