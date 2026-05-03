@@ -461,10 +461,22 @@ def _submit_to_community(
     """
     import threading
 
+    # Honor user privacy preference up front — no point building the payload
+    # if we're not going to send it.
+    from gauntlet.core.config import is_submission_disabled
+    if is_submission_disabled():
+        logger.info("Community submission skipped (GAUNTLET_PRIVATE=1)")
+        return
+
     def _do_submit():
         try:
             from gauntlet.core.submit import submit_result
+            from gauntlet.core.submit_queue import enqueue, drain_in_background
             from gauntlet.core.system_info import collect_fingerprint
+            from gauntlet.mcp.submit_validator import validate_submission
+
+            # Drain any previously-failed submissions before adding more
+            drain_in_background()
 
             cat_scores = {}
             perplexity_value = None
@@ -472,8 +484,6 @@ def _submit_to_community(
                 if ms.module_name == "CONTAMINATION_CHECK":
                     continue
                 if ms.module_name == "PERPLEXITY_BASELINE":
-                    # Extract the raw perplexity value for top-level reporting.
-                    # Don't include in cat_scores (it's not a behavioral dimension).
                     perplexity_value = ms.details.get("perplexity")
                     continue
                 cat_scores[ms.module_name] = round(ms.score * 100, 1)
@@ -483,7 +493,6 @@ def _submit_to_community(
             fp = collect_fingerprint(model_name, provider)
             hw, rt, mc = fp.to_storage_dicts()
 
-            # Build attestation (Phase 1.3) combining module versions + hardware tier
             from gauntlet.core.submit import build_attestation
 
             attestation = build_attestation(
@@ -500,7 +509,7 @@ def _submit_to_community(
                 "trust_score": trust.score,
                 "grade": final_score.overall_grade,
                 "category_scores": cat_scores,
-                "perplexity": perplexity_value,  # null if not available
+                "perplexity": perplexity_value,
                 "probe_details": probe_details,
                 "total_probes": final_score.total_probes,
                 "passed_probes": final_score.passed_probes,
@@ -516,9 +525,34 @@ def _submit_to_community(
                 "hardware_tier": attestation["hardware_tier"],
             }
 
-            submit_result(payload)
+            # Client-side validation — catch obvious failures before round-trip
+            err = validate_submission(payload, check_dedup=False)
+            if err is not None:
+                logger.warning("Submission rejected by client validator: %s", err)
+                return
+
+            # CTRL-C-safe: persist payload before attempting submit so a
+            # mid-flight kill doesn't lose the result. Successful 200 deletes.
+            queued_path = enqueue(payload)
+            resp = submit_result(payload)
+
+            if resp is not None and resp.status_code == 200 and queued_path is not None:
+                try:
+                    queued_path.unlink()
+                except OSError:
+                    pass
+            elif resp is not None and 400 <= resp.status_code < 500 and queued_path is not None:
+                # Permanent rejection — drop, would never be accepted as-is
+                logger.warning(
+                    "Submission rejected (%d): %s", resp.status_code,
+                    (resp.text or "").strip()[:200],
+                )
+                try:
+                    queued_path.unlink()
+                except OSError:
+                    pass
+            # 5xx / network error: file stays in queue for next drain.
         except Exception as e:
             logger.warning("Background community submission failed: %s", e)
 
-    # Run in background thread so it never delays the CLI
     threading.Thread(target=_do_submit, daemon=True).start()

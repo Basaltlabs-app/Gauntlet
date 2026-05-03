@@ -10,22 +10,25 @@ import hashlib
 import hmac
 import json
 import logging
-import os
 from typing import Optional
 
 import httpx
 
 from gauntlet import __version__
+from gauntlet.core.config import get_submit_key, get_community_api_base
 
 logger = logging.getLogger("gauntlet.submit")
 
-_COMMUNITY_API = "https://gauntlet.basaltlabs.app/api/submit"
-_SUBMIT_KEY = os.environ.get("GAUNTLET_SUBMIT_KEY", "gauntlet-community-2026")
+
+def _community_api_url() -> str:
+    """The /api/submit URL, recomputed each call so $GAUNTLET_API_URL changes
+    are picked up at runtime (useful in tests)."""
+    return f"{get_community_api_base()}/api/submit"
 
 
 def _sign_payload(body_bytes: bytes) -> str:
     """Generate HMAC-SHA256 signature for the payload."""
-    return hmac.new(_SUBMIT_KEY.encode(), body_bytes, hashlib.sha256).hexdigest()
+    return hmac.new(get_submit_key().encode(), body_bytes, hashlib.sha256).hexdigest()
 
 
 def build_attestation(
@@ -68,7 +71,7 @@ def submit_result(payload: dict, timeout: float = 10) -> Optional[httpx.Response
 
     try:
         resp = httpx.post(
-            _COMMUNITY_API,
+            _community_api_url(),
             content=body_bytes,
             headers={
                 "Content-Type": "application/json",
@@ -77,8 +80,14 @@ def submit_result(payload: dict, timeout: float = 10) -> Optional[httpx.Response
             timeout=timeout,
         )
         if resp.status_code != 200:
-            logger.debug("Submit failed (%d): %s", resp.status_code, resp.text)
+            # Was DEBUG — invisible without --verbose. WARNING ensures the user
+            # actually sees rejections (validation failures, version pins, etc.)
+            logger.warning(
+                "Community submit rejected (%d): %s",
+                resp.status_code,
+                (resp.text or "").strip()[:300],
+            )
         return resp
     except Exception as e:
-        logger.debug("Submit error: %s", e)
+        logger.warning("Community submit network error: %s", e)
         return None

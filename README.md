@@ -433,9 +433,120 @@ Estimated cost per run (input + output, at published API pricing):
 
 **Recommendation**: Use **Quick mode** (`gauntlet_run(quick=true)`) for routine testing. Full mode is best reserved for thorough evaluation or when publishing results. Users on metered plans (especially Opus-class models) should be aware of the cost before running full suites.
 
+### Running gauntlet as a local MCP server
+
+The hosted MCP URL above is the easiest way in, but you can also run gauntlet locally — the MCP client (Gemini CLI, Claude Desktop, Cursor, etc.) spawns it as a subprocess on your machine. This gives you:
+
+- **Real hardware fingerprint** instead of the "serverless" placeholder
+- **Faster iteration** — no round-trip through Vercel
+- **Private runs** that never leave your machine (set `SUPABASE_URL=""` to disable community push)
+
+**Step 1 — install the CLI:**
+
+```bash
+pipx install gauntlet-cli
+gauntlet --version   # confirm 2.1.2 or later
+```
+
+**Step 2 — make Supabase creds visible to the MCP subprocess.**
+
+MCP clients spawn gauntlet as a child process. They do **not** inherit your shell's exported env by default — `export SUPABASE_URL=...` in `.zshrc` is invisible to the subprocess. Three ways to fix this, pick one:
+
+| Method | Where to put it | Best for |
+|---|---|---|
+| **Global file** (recommended) | `~/.gauntlet/.env` | Works with any MCP client, no per-client config |
+| **Per-client `env` block** | Inside the MCP client's `mcpServers.gauntlet` config | Sandboxed credentials per project |
+| **Explicit override** | `GAUNTLET_ENV_FILE=/path/to/.env` | CI / scripted use |
+
+For the global file approach:
+
+```bash
+mkdir -p ~/.gauntlet
+cat > ~/.gauntlet/.env <<'EOF'
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_KEY=your-service-key
+EOF
+chmod 600 ~/.gauntlet/.env
+```
+
+**Step 3 — register gauntlet with your MCP client.**
+
+<details>
+<summary><b>Gemini CLI</b> (<code>~/.gemini/settings.json</code>)</summary>
+
+```json
+{
+  "mcpServers": {
+    "gauntlet": {
+      "command": "gauntlet",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+If you'd rather pass creds inline instead of using `~/.gauntlet/.env`:
+```json
+{
+  "mcpServers": {
+    "gauntlet": {
+      "command": "gauntlet",
+      "args": ["mcp"],
+      "env": {
+        "SUPABASE_URL": "https://your-project.supabase.co",
+        "SUPABASE_SERVICE_KEY": "your-service-key"
+      }
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary><b>Claude Desktop</b> (<code>~/Library/Application Support/Claude/claude_desktop_config.json</code> on macOS)</summary>
+
+```json
+{
+  "mcpServers": {
+    "gauntlet": {
+      "command": "gauntlet",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+Note: Claude Desktop launched from the Dock does **not** source `~/.zshrc`, so shell-exported env vars are invisible. Use `~/.gauntlet/.env` or the inline `env` block.
+</details>
+
+<details>
+<summary><b>Cursor</b> (Settings → Tools → MCP)</summary>
+
+```json
+{
+  "mcpServers": {
+    "gauntlet": {
+      "command": "gauntlet",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+</details>
+
+**Step 4 — verify.** Restart the MCP client, then ask the AI to run gauntlet. The completion message will end with:
+
+```
+--- Save status ---
+  [ok] Local history: saved
+  [ok] Community dashboard: saved
+```
+
+If you see `[skip] Community dashboard: skipped: SUPABASE_URL ... not set`, your env file isn't being loaded. Run `gauntlet doctor` in a terminal to see exactly what gauntlet is detecting, where it looked, and what's reachable.
+
 ### MCP Data Quality
 
-MCP results are stored separately from community CLI results. Because MCP runs on cloud serverless infrastructure, there is no local hardware fingerprint, and the model name is self-reported by the AI (not verified). For research-grade community data, use `gauntlet run` from the CLI, which detects the actual model, quantization, and hardware automatically.
+When gauntlet runs as a **desktop subprocess** (the local setup above), it captures your real CPU, RAM, GPU, and OS just like `gauntlet run` does, and submissions go through the same validation pipeline.
+
+When gauntlet runs as a **Vercel-hosted endpoint** (`gauntlet.basaltlabs.app/mcp`), the host is serverless infrastructure — no real hardware to fingerprint. Those rows are tagged `os_platform=serverless` and the model name is self-reported by the AI (not verified). For research-grade community data, prefer either local MCP or `gauntlet run`.
 
 ---
 

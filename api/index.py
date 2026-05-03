@@ -15,13 +15,18 @@ Exposes:
   /api/health               - Health check endpoint
 """
 
+from __future__ import annotations
+
 import hashlib
 import hmac
+import logging
 import os
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Optional
+
+logger = logging.getLogger("gauntlet.api")
 
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -34,8 +39,10 @@ from gauntlet.mcp.server import mcp
 # Security constants
 # ---------------------------------------------------------------------------
 
-# Minimum CLI version allowed to submit (reject older broken versions)
-MIN_CLI_VERSION = "1.3.5"
+# Minimum CLI version allowed to submit. Bumped to 2.0.0 because anything
+# below that pre-dates the fingerprint + attestation fields and was being
+# silently accepted with hardware_tier="" — polluting tier-filtered views.
+MIN_CLI_VERSION = "2.0.0"
 
 # Valid category names: auto-derived from the module registry + fixed
 # non-module categories (benchmark/compare + health check domains).
@@ -66,7 +73,8 @@ def _build_valid_categories() -> set[str]:
 VALID_CATEGORIES = _build_valid_categories()
 
 # HMAC signing key (shared with CLI, not truly secret but stops casual abuse)
-_SUBMIT_KEY = os.environ.get("GAUNTLET_SUBMIT_KEY", "gauntlet-community-2026")
+# Single source of truth lives in gauntlet/core/config.py.
+from gauntlet.core.config import get_submit_key as _get_submit_key
 
 # Rate limiting: per-IP tracking (in-memory, resets on cold start)
 _rate_limits: dict[str, list[float]] = defaultdict(list)
@@ -76,6 +84,51 @@ _RATE_MAX = 10         # max submissions per window per IP
 # Duplicate detection: recent submission hashes
 _recent_submissions: dict[str, float] = {}
 _DEDUP_WINDOW = 60.0   # seconds
+
+# In-memory matrix cache for /api/predict + /api/recommend.
+# These endpoints fetch up to 2000 history rows from Supabase on every call,
+# but the prediction matrix changes minutes-slow at most. A short TTL cuts
+# Supabase egress ~95% during dashboard / CLI bursts.
+_history_matrix_cache: dict = {"rows": None, "fetched_at": 0.0}
+_HISTORY_MATRIX_TTL = 60.0  # seconds
+
+
+def _fetch_history_matrix(timeout: float = 5.0) -> tuple[list[dict] | None, str | None]:
+    """Return (rows, error_message). Cached for _HISTORY_MATRIX_TTL seconds.
+
+    Both /api/predict and /api/recommend share this matrix — same shape,
+    same source, same expensive query. Caching once benefits both.
+    """
+    now = time.time()
+    cached_rows = _history_matrix_cache.get("rows")
+    if cached_rows is not None and (now - _history_matrix_cache["fetched_at"]) < _HISTORY_MATRIX_TTL:
+        return cached_rows, None
+
+    import httpx
+    from gauntlet.mcp.history_store import _table_url, _headers
+    try:
+        resp = httpx.get(
+            _table_url(),
+            headers={**_headers(), "Prefer": "return=representation"},
+            params={
+                "select": "model_name,overall_score,hardware,runtime",
+                "order": "timestamp.desc",
+                "limit": "2000",
+            },
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+        _history_matrix_cache["rows"] = rows
+        _history_matrix_cache["fetched_at"] = now
+        return rows, None
+    except Exception as e:
+        logger.warning("history matrix fetch failed: %s", e)
+        # On error, serve stale data if we have any — better than 503
+        if cached_rows is not None:
+            logger.info("Serving stale history matrix (age %.1fs)", now - _history_matrix_cache["fetched_at"])
+            return cached_rows, None
+        return None, "Upstream history unavailable"
 
 # Allow all hosts for public deployment (default only allows localhost)
 mcp.settings.transport_security.enable_dns_rebinding_protection = False
@@ -88,12 +141,15 @@ _mcp_app = mcp.streamable_http_app()
 # REST API routes
 # ---------------------------------------------------------------------------
 
-# Read-only endpoints: open to all origins (public data)
+# Read-only endpoints: open to all origins (public data).
+# Cache TTLs were 30/60s — far too aggressive for data that changes hourly.
+# Bumped to 5min browser / 15min CDN so dashboards load instantly and we
+# stop hammering Supabase + cold-starting functions on every visit.
 CORS_HEADERS_READ = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
-    "Cache-Control": "public, max-age=30, s-maxage=60",
+    "Cache-Control": "public, max-age=300, s-maxage=900, stale-while-revalidate=86400",
 }
 
 # Write endpoints: restrict to CLI user-agent (not browser-exploitable)
@@ -157,7 +213,7 @@ def _verify_signature(body_bytes: bytes, signature: Optional[str]) -> bool:
     """Verify HMAC-SHA256 signature from CLI. Returns True if valid or no key configured."""
     if not signature:
         return False
-    expected = hmac.new(_SUBMIT_KEY.encode(), body_bytes, hashlib.sha256).hexdigest()
+    expected = hmac.new(_get_submit_key().encode(), body_bytes, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature)
 
 
@@ -284,106 +340,62 @@ async def submit_handler(request: Request) -> Response:
             status_code=400, headers=CORS_HEADERS,
         )
 
-    # ── Validate required fields ─────────────────────────────────────────
-    model_name = body.get("model_name")
-    overall_score = body.get("overall_score")
-    if not model_name or overall_score is None:
-        return JSONResponse(
-            {"error": "Missing required fields: model_name, overall_score"},
-            status_code=400, headers=CORS_HEADERS,
-        )
+    # ── 4-11. Shared validator covers: required fields, score ranges, model
+    # name length, category sanity (count + allowlist + range), score
+    # consistency, probe count, attestation shape, probe_details size caps,
+    # duplicate detection. Single source of truth shared with the MCP write
+    # path so /api/submit and _save_mcp_results enforce identical rules.
+    from gauntlet.mcp.submit_validator import validate_submission as _validate
 
-    # ── 4. Score range check ─────────────────────────────────────────────
-    if not isinstance(overall_score, (int, float)) or overall_score < 0 or overall_score > 100:
-        return JSONResponse({"error": "Invalid score range"}, status_code=400, headers=CORS_HEADERS)
-
-    # ── 5. Model name length check ───────────────────────────────────────
-    if len(model_name) > 100 or len(model_name) < 2:
-        return JSONResponse({"error": "Invalid model name"}, status_code=400, headers=CORS_HEADERS)
-
-    # ── 6. Category score validation ─────────────────────────────────────
-    cat_scores = body.get("category_scores", {})
-    if not isinstance(cat_scores, dict) or len(cat_scores) < 2:
-        return JSONResponse({"error": "Insufficient category data"}, status_code=400, headers=CORS_HEADERS)
-
-    # 6a. Only accept known category names
-    unknown_cats = set(cat_scores.keys()) - VALID_CATEGORIES
-    if unknown_cats:
-        return JSONResponse(
-            {"error": f"Unknown categories: {', '.join(sorted(unknown_cats))}"},
-            status_code=400, headers=CORS_HEADERS,
-        )
-
-    # 6b. All category scores must be valid numbers 0-100
-    for cat_name, cat_val in cat_scores.items():
-        if not isinstance(cat_val, (int, float)) or cat_val < 0 or cat_val > 100:
-            return JSONResponse(
-                {"error": f"Invalid score for category {cat_name}"},
-                status_code=400, headers=CORS_HEADERS,
-            )
-
-    # ── 7. Score consistency check ───────────────────────────────────────
-    # Overall score should be roughly consistent with category averages
-    if cat_scores:
-        cat_avg = sum(cat_scores.values()) / len(cat_scores)
-        # Allow 40-point tolerance (profile weights differ 0.3-1.0x across modules,
-        # so weighted overall can diverge substantially from unweighted category mean)
-        if abs(overall_score - cat_avg) > 40:
-            return JSONResponse(
-                {"error": "Score inconsistency: overall score doesn't match category averages"},
-                status_code=400, headers=CORS_HEADERS,
-            )
-
-    # ── 8. Probe count sanity ────────────────────────────────────────────
-    total_probes = body.get("total_probes", 0)
-    if not isinstance(total_probes, int) or total_probes < 4:
-        return JSONResponse({"error": "Invalid probe count"}, status_code=400, headers=CORS_HEADERS)
-
-    # ── 9. Hardware fingerprint required ─────────────────────────────────
+    # The /api/submit path requires hardware fingerprint at minimum (the
+    # validator doesn't enforce this because the MCP path supplies its own
+    # fingerprint locally — only the public API needs to refuse blank ones).
     hw = body.get("hardware")
     rt = body.get("runtime")
     if not hw and not rt:
-        return JSONResponse({"error": "Missing system fingerprint"}, status_code=400, headers=CORS_HEADERS)
+        return JSONResponse(
+            {"error": "Missing system fingerprint"},
+            status_code=400, headers=CORS_HEADERS,
+        )
 
-    # ── 10. Duplicate detection ──────────────────────────────────────────
+    VALID_HARDWARE_TIERS = {"CLOUD", "CONSUMER_HIGH", "CONSUMER_MID", "CONSUMER_LOW", "EDGE", ""}
+    err = _validate(
+        body,
+        valid_categories=VALID_CATEGORIES,
+        valid_hardware_tiers=VALID_HARDWARE_TIERS,
+        check_dedup=False,  # we use the API's IP-aware dedup helper below
+    )
+    if err is not None:
+        # Status code mapping mirrors the original handler:
+        # duplicates → 409, score range → 400, etc. The validator itself
+        # returns plain strings so we use heuristics on the message.
+        # All non-dedup errors are 400; the dedup case is handled separately.
+        return JSONResponse(
+            {"error": err},
+            status_code=400, headers=CORS_HEADERS,
+        )
+
+    model_name = body["model_name"]
+    overall_score = body["overall_score"]
+    cat_scores = body.get("category_scores", {})
+
+    # API-side dedup uses the IP-aware helper with the existing dedup window.
     if _check_duplicate(model_name, overall_score, hw):
         return JSONResponse(
             {"error": "Duplicate submission detected. Please wait before resubmitting."},
             status_code=409, headers=CORS_HEADERS,
         )
 
-    # ── 11a. Attestation validation (optional, backward compatible) ──────
-    VALID_HARDWARE_TIERS = {"CLOUD", "CONSUMER_HIGH", "CONSUMER_MID", "CONSUMER_LOW", "EDGE", ""}
-    attestation = body.get("attestation")
-    if attestation is not None:
-        if not isinstance(attestation, dict):
-            return JSONResponse({"error": "Invalid attestation format"}, status_code=400, headers=CORS_HEADERS)
-        att_version = attestation.get("gauntlet_version", "")
-        if not isinstance(att_version, str) or not att_version:
-            return JSONResponse({"error": "Attestation missing gauntlet_version"}, status_code=400, headers=CORS_HEADERS)
-        att_tier = attestation.get("hardware_tier", "")
-        if not isinstance(att_tier, str) or att_tier not in VALID_HARDWARE_TIERS:
-            return JSONResponse(
-                {"error": f"Invalid attestation hardware_tier: {att_tier}"},
-                status_code=400, headers=CORS_HEADERS,
-            )
-
-    # ── 11b. probe_details size + shape validation ─────────────────────
+    # Truncate over-length probe_details reasons (the validator size-checks
+    # the structure but doesn't mutate; we still want to truncate before storage).
     probe_details = body.get("probe_details")
-    if probe_details is not None:
-        if not isinstance(probe_details, dict) or len(probe_details) > 30:
-            return JSONResponse({"error": "Invalid probe_details"}, status_code=400, headers=CORS_HEADERS)
+    if probe_details:
         for mod_key, mod_probes in probe_details.items():
-            if not isinstance(mod_key, str) or len(mod_key) > 64:
-                return JSONResponse({"error": "Invalid probe_details module name"}, status_code=400, headers=CORS_HEADERS)
-            if not isinstance(mod_probes, list) or len(mod_probes) > 200:
-                return JSONResponse({"error": f"Too many probes in {mod_key}"}, status_code=400, headers=CORS_HEADERS)
             for p in mod_probes:
-                if not isinstance(p, dict):
-                    return JSONResponse({"error": "Invalid probe entry"}, status_code=400, headers=CORS_HEADERS)
-                reason_val = p.get("reason", "")
-                if isinstance(reason_val, str) and len(reason_val) > 500:
-                    p["reason"] = reason_val[:500]  # Truncate rather than reject
+                if isinstance(p, dict):
+                    reason_val = p.get("reason", "")
+                    if isinstance(reason_val, str) and len(reason_val) > 500:
+                        p["reason"] = reason_val[:500]
 
     # ── Store result ─────────────────────────────────────────────────────
     from gauntlet.mcp.history_store import record_test_result, is_available
@@ -440,8 +452,12 @@ async def submit_handler(request: Request) -> Response:
             suite_type=body.get("attestation", {}).get("suite_type", "full"),
         )
     except Exception as e:
+        # Log the detail server-side; never return it to the client (could
+        # leak internal URLs, schema info, or upstream provider errors).
+        logger.warning("submit: storage write failed: %s", e)
         return JSONResponse(
-            {"status": "ok", "storage_warning": str(e)}, headers=CORS_HEADERS,
+            {"status": "ok", "storage_warning": "write failed — submission will be retried"},
+            headers=CORS_HEADERS,
         )
 
     return JSONResponse({"status": "ok"}, headers=CORS_HEADERS)
@@ -789,25 +805,11 @@ async def predict_handler(request: Request) -> Response:
             {"error": "Storage not configured"}, status_code=503, headers=CORS_HEADERS,
         )
 
-    # Fetch history rows with hardware_tier data
-    import httpx
-    from gauntlet.mcp.history_store import _table_url, _headers
-    try:
-        resp = httpx.get(
-            _table_url(),
-            headers={**_headers(), "Prefer": "return=representation"},
-            params={
-                "select": "model_name,overall_score,hardware,runtime",
-                "order": "timestamp.desc",
-                "limit": "2000",
-            },
-            timeout=5,
-        )
-        resp.raise_for_status()
-        rows = resp.json()
-    except Exception as e:
+    # Fetch history rows from cached matrix (60s TTL)
+    rows, err = _fetch_history_matrix()
+    if rows is None:
         return JSONResponse(
-            {"error": f"Failed to fetch history: {str(e)}"},
+            {"error": err or "Upstream history unavailable"},
             status_code=503, headers=CORS_HEADERS,
         )
 
@@ -895,8 +897,9 @@ async def recommend_handler(request: Request) -> Response:
         resp.raise_for_status()
         rows = resp.json()
     except Exception as e:
+        logger.warning("history fetch failed: %s", e)
         return JSONResponse(
-            {"error": f"Failed to fetch history: {str(e)}"},
+            {"error": "Upstream history unavailable"},
             status_code=503, headers=CORS_HEADERS,
         )
 
@@ -1018,6 +1021,35 @@ async def certification_handler(request: Request) -> Response:
     )
 
 
+async def version_handler(request: Request) -> Response:
+    """GET /api/version — version contract for CLI / MCP / dashboard clients.
+
+    Returns:
+        - server: API version (the deployed gauntlet package version)
+        - min_supported: minimum CLI version that can submit (matches MIN_CLI_VERSION)
+        - latest: best-effort latest CLI version on PyPI (cached server-side)
+        - recommended: lowest version that includes all current "must-have"
+          fixes (e.g. 2.1.2 includes the env-loader and CTRL-C-safe submit)
+        - upgrade_url: where to point the user
+
+    Lets `gauntlet doctor` and the update-check warn users authoritatively
+    instead of relying on the CLI's own knowledge.
+    """
+    from gauntlet import __version__ as server_version
+    return JSONResponse(
+        {
+            "server": server_version,
+            "min_supported": MIN_CLI_VERSION,
+            "recommended": "2.1.2",
+            "latest": server_version,  # for now; later, mirror pypi
+            "upgrade_command": "pipx upgrade gauntlet-cli",
+            "upgrade_url": "https://pypi.org/project/gauntlet-cli/",
+            "release_notes": "https://github.com/Basaltlabs-app/Gauntlet/blob/main/CHANGELOG.md",
+        },
+        headers=CORS_HEADERS,
+    )
+
+
 async def health_handler(request: Request) -> Response:
     """GET /api/health -- health check with Supabase connectivity test."""
     from gauntlet.mcp.history_store import is_available as history_available
@@ -1075,6 +1107,8 @@ class _CombinedApp:
         self._rest = Starlette(
             routes=[
                 Route("/api/health", health_handler, methods=["GET"]),
+                Route("/api/version", version_handler, methods=["GET"]),
+                Route("/api/version", cors_preflight, methods=["OPTIONS"]),
                 Route("/api/submit", submit_handler, methods=["POST"]),
                 Route("/api/submit", cors_preflight, methods=["OPTIONS"]),
                 Route("/api/predict", predict_handler, methods=["GET"]),

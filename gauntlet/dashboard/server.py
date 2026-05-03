@@ -1,4 +1,22 @@
-"""FastAPI dashboard backend with WebSocket streaming."""
+"""FastAPI dashboard backend with WebSocket streaming.
+
+TODO(refactor): this file has grown to >1200 lines. Natural split points
+identified for a future focused refactor PR (do NOT bundle with feature work):
+
+  gauntlet/dashboard/
+    ├── server.py              # Starlette app + lifespan + websocket only
+    ├── handlers/
+    │   ├── benchmarks.py      # /benchmarks/* run management endpoints
+    │   ├── community.py       # _proxy_community + /community/* passthroughs
+    │   ├── health.py          # /health, /version, /info
+    │   ├── leaderboard.py     # /leaderboard/* dashboard-local routes
+    │   └── ws.py              # /ws WebSocket streaming
+    └── state.py               # shared state (run registry, model cache)
+
+The split is mechanical (move + adjust imports) — zero behavior change.
+Deferring because: ~30 routes to move, no user value, and the diff would
+swamp review of any feature PR it lands in.
+"""
 
 from __future__ import annotations
 
@@ -443,13 +461,16 @@ async def stop_benchmark():
 # Community Intelligence proxy endpoints (forward to public API)
 # ---------------------------------------------------------------------------
 
-_COMMUNITY_API = "https://gauntlet.basaltlabs.app"
+def _community_api() -> str:
+    """The community API base — read at call time so $GAUNTLET_API_URL is honored."""
+    from gauntlet.core.config import get_community_api_base
+    return get_community_api_base()
 
 
 async def _proxy_community(path: str, params: dict = None):
     """Proxy a request to the community API, return JSON or error."""
     import httpx
-    url = f"{_COMMUNITY_API}{path}"
+    url = f"{_community_api()}{path}"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(url, params=params)

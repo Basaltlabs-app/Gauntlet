@@ -8,8 +8,12 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from gauntlet.core.submit import _sign_payload, submit_result, _SUBMIT_KEY
+from gauntlet.core.submit import _sign_payload, submit_result
+from gauntlet.core.config import get_submit_key
 import gauntlet
+
+# Compatibility shim — _SUBMIT_KEY moved to gauntlet.core.config.get_submit_key()
+_SUBMIT_KEY = get_submit_key()
 
 
 # ---------------------------------------------------------------------------

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from typing import Optional
 
 import typer
 from rich.live import Live
+
+logger = logging.getLogger("gauntlet.cli")
 
 from gauntlet.cli.display import (
     console,
@@ -34,8 +37,25 @@ app = typer.Typer(
 )
 
 
+def _version_callback(value: bool) -> None:
+    if value:
+        from gauntlet import __version__
+        typer.echo(f"gauntlet {__version__}")
+        raise typer.Exit()
+
+
 @app.callback(invoke_without_command=True)
-def _default(ctx: typer.Context) -> None:
+def _default(
+    ctx: typer.Context,
+    version: bool = typer.Option(
+        False,
+        "--version",
+        "-V",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show gauntlet version and exit.",
+    ),
+) -> None:
     """Launch the interactive TUI when called with no arguments."""
     if ctx.invoked_subcommand is not None:
         return  # A subcommand like 'run', 'compare', etc. was given
@@ -789,6 +809,11 @@ def benchmark(
     quick: bool = typer.Option(False, "--quick", "-q", help="Run quick subset (5 tests)"),
     seq: bool = typer.Option(False, "--seq", help="Run models one at a time (saves memory)"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output format: json"),
+    no_submit: bool = typer.Option(
+        False, "--no-submit",
+        help="Run locally only — skip community leaderboard submission. "
+             "Same effect as setting GAUNTLET_PRIVATE=1.",
+    ),
 ) -> None:
     """Run the legacy benchmark suite. Auto-detects your models.
 
@@ -855,27 +880,61 @@ def benchmark(
     except Exception:
         pass
 
-    # Submit each model's results to the public API (signed)
-    try:
+    # ── Community submission ─────────────────────────────────────────────
+    # Honor the user's privacy preference. Both flag and env are supported
+    # so per-invocation and shell-wide opt-out work without surprises.
+    from gauntlet.core.config import is_submission_disabled
+    if no_submit or is_submission_disabled():
+        console.print(
+            "[dim]Skipping community submission "
+            f"({'--no-submit' if no_submit else 'GAUNTLET_PRIVATE=1'}).[/dim]"
+        )
+    else:
         import threading
         from gauntlet.core.system_info import collect_fingerprint
-        from gauntlet.core.submit import submit_result
+        from gauntlet.core.submit import submit_result, build_attestation
+        from gauntlet.core.submit_queue import drain_in_background, enqueue
+        from gauntlet.mcp.submit_validator import validate_submission
+
+        # Best-effort drain of any previously-failed submissions before queueing
+        # this run's results. Runs in a daemon thread, never blocks.
+        drain_in_background()
 
         def _submit_benchmarks():
             from gauntlet.core.config import detect_provider
+
+            # Hardware doesn't change between models in a single run — only
+            # model_config does. Compute the fingerprint ONCE and vary the
+            # model fields per result. Saves ~3-5 calls to psutil/sysctl/
+            # nvidia-smi per benchmark suite.
+            base_fp = None
+            try:
+                # Use the first model's provider to infer hw fingerprint;
+                # provider only affects model_config, not hw/rt fields.
+                first_provider, _ = detect_provider(results[0].model) if results else ("ollama", None)
+                base_fp = collect_fingerprint(results[0].model, first_provider) if results else None
+            except Exception as e:
+                logger.warning("Initial fingerprint collection failed: %s", e)
+
             for r in results:
                 try:
-                    # Derive the real provider from the model spec so fingerprint
-                    # metadata lines up on the community leaderboard. Defaults to
-                    # ollama when the spec is bare (e.g. "qwen2.5:14b"), matching
-                    # existing behaviour for plain Ollama names.
                     detected_provider, _ = detect_provider(r.model)
+                    # Re-collect to refresh model-specific fields, but the
+                    # hardware/runtime portions are deterministic and free
+                    # to recompute (psutil stats are cached internally).
                     fp = collect_fingerprint(r.model, detected_provider)
                     hw, rt, mc = fp.to_storage_dicts()
-                    # Scale scores from 0-1 to 0-100 for the community API
+
                     raw_cats = getattr(r, "category_scores", {})
                     scaled_cats = {k: round(v * 100, 1) for k, v in raw_cats.items()}
-                    submit_result({
+
+                    attestation = build_attestation(
+                        hardware_tier=fp.hardware_tier,
+                        suite_type="quick" if quick else "full",
+                        probe_count=getattr(r, "total_tests", 0),
+                    )
+
+                    payload = {
                         "model_name": r.model,
                         "overall_score": round(r.overall_score * 100, 1),
                         "trust_score": getattr(r, "trust_score", 0),
@@ -888,11 +947,77 @@ def benchmark(
                         "hardware": hw,
                         "runtime": rt,
                         "model_config": mc,
-                    })
-                except Exception:
-                    pass
+                        "hardware_tier": fp.hardware_tier,
+                        "attestation": attestation,
+                    }
+
+                    # Client-side validation — catches bad payloads BEFORE the
+                    # network round-trip so users see specific errors instantly
+                    # instead of a generic 400 from the server.
+                    err = validate_submission(payload, check_dedup=False)
+                    if err is not None:
+                        console.print(
+                            f"[red]✗ {r.model}: would-be rejected ({err}). "
+                            f"Not submitting.[/red]"
+                        )
+                        continue
+
+                    # CTRL-C-safe ordering: queue to disk FIRST, then submit.
+                    # If the user kills the process mid-submit, the file is
+                    # there for the next drain. Successful 200 deletes it.
+                    queued_path = enqueue(payload)
+                    resp = submit_result(payload)
+
+                    if resp is not None and resp.status_code == 200:
+                        # Success — drop the queued copy.
+                        if queued_path is not None:
+                            try:
+                                queued_path.unlink()
+                            except OSError:
+                                pass
+                        tier_note = f" ({fp.hardware_tier})" if fp.hardware_tier else ""
+                        console.print(
+                            f"[green]✓ {r.model}: submitted to community leaderboard{tier_note}[/green]"
+                        )
+                    elif resp is None:
+                        # Network failure — file stays queued for next drain.
+                        console.print(
+                            f"[yellow]⚠ {r.model}: community submit — network error "
+                            f"(queued for retry)[/yellow]"
+                        )
+                    elif 500 <= resp.status_code < 600:
+                        # Transient — file stays queued.
+                        console.print(
+                            f"[yellow]⚠ {r.model}: community submit — server error "
+                            f"({resp.status_code}, queued for retry)[/yellow]"
+                        )
+                    else:
+                        # 4xx — permanent rejection, drop the queued file too
+                        # since it'd never be accepted as-is.
+                        if queued_path is not None:
+                            try:
+                                queued_path.unlink()
+                            except OSError:
+                                pass
+                        detail = (resp.text or "").strip()[:200] or f"HTTP {resp.status_code}"
+                        console.print(
+                            f"[red]✗ {r.model}: community submit rejected ({resp.status_code}): {detail}[/red]"
+                        )
+                except Exception as e:
+                    console.print(
+                        f"[red]✗ {r.model}: community submit failed: {type(e).__name__}: {e}[/red]"
+                    )
 
         threading.Thread(target=_submit_benchmarks, daemon=True).start()
+
+    # ── Update notification ──────────────────────────────────────────────
+    # Non-blocking: prints one yellow line if a newer gauntlet-cli is on PyPI.
+    # First call kicks off the background fetch; the message appears next run.
+    try:
+        from gauntlet.core.update_check import get_update_message
+        msg = get_update_message()
+        if msg:
+            console.print(f"[yellow]→ {msg}[/yellow]")
     except Exception:
         pass
 
@@ -1501,6 +1626,246 @@ def badge(
     markdown = f"[![{label}]({url})](https://github.com/Basaltlabs-app/Gauntlet)"
     import sys
     print(f"\nMarkdown: {markdown}", file=sys.stderr)
+
+
+@app.command()
+def history(
+    limit: int = typer.Option(20, "--limit", "-n", help="Max number of runs to show"),
+    model: Optional[str] = typer.Option(
+        None, "--model", "-m", help="Filter by model name (substring match)"
+    ),
+) -> None:
+    """List your local benchmark runs (most recent first).
+
+    Reads from ~/.gauntlet/benchmarks/. No network access — this is your
+    private history, separate from the community leaderboard.
+    """
+    from rich.table import Table
+    from gauntlet.core.benchmark_history import list_benchmark_runs
+
+    try:
+        runs = list_benchmark_runs(limit=max(1, min(limit, 200)))
+    except Exception as e:
+        console.print(f"[red]Could not load benchmark history: {type(e).__name__}: {e}[/red]")
+        raise typer.Exit(1)
+
+    if not runs:
+        console.print(
+            "[dim]No local runs yet. Try [/dim][cyan]gauntlet run[/cyan][dim] or "
+            "[/dim][cyan]gauntlet benchmark[/cyan][dim] to get started.[/dim]"
+        )
+        return
+
+    # Flatten one row per (run, model) for tabular display
+    rows: list[tuple[str, str, str, str]] = []
+    for r in runs:
+        ts = r.get("timestamp", "?")
+        # Trim ISO timestamp to "YYYY-MM-DD HH:MM" for compactness
+        ts_short = ts.replace("T", " ")[:16] if ts else "?"
+        suite = "quick" if r.get("quick") else "full"
+        if r.get("stopped"):
+            suite = f"{suite} (stopped)"
+        scores = r.get("scores", {}) or {}
+        if not scores:
+            rows.append((ts_short, "[dim](no models)[/dim]", suite, "—"))
+            continue
+        for m, s in scores.items():
+            if model and model.lower() not in m.lower():
+                continue
+            if isinstance(s, (int, float)):
+                score_str = f"{s * 100:.1f}" if s <= 1.0 else f"{s:.1f}"
+            else:
+                score_str = "?"
+            rows.append((ts_short, m, suite, score_str))
+
+    if not rows:
+        console.print(f"[dim]No runs match model filter '{model}'.[/dim]")
+        return
+
+    table = Table(
+        show_header=True, header_style="bold cyan",
+        title=f"Local benchmark history  [dim]({len(rows)} entries)[/dim]",
+        title_justify="left",
+    )
+    table.add_column("Timestamp (UTC)", style="dim")
+    table.add_column("Model")
+    table.add_column("Suite", style="dim")
+    table.add_column("Score", justify="right")
+
+    for ts, model_name, suite, score in rows:
+        table.add_row(ts, model_name, suite, score)
+
+    console.print()
+    console.print(table)
+    console.print()
+    console.print(
+        "[dim]Files at ~/.gauntlet/benchmarks/. "
+        "Use [/dim][cyan]gauntlet doctor[/cyan][dim] for system + queue diagnostics.[/dim]"
+    )
+
+
+@app.command()
+def doctor() -> None:
+    """Print a diagnostic summary — env vars, recent runs, queued submissions.
+
+    Run this when something looks wrong. Designed to answer 'why didn't my
+    last run show up on the dashboard?' in 5 seconds without spelunking.
+    """
+    from gauntlet import __version__
+
+    console.print()
+    console.print(f"[bold cyan]gauntlet doctor[/bold cyan] [dim]v{__version__}[/dim]")
+    console.print()
+
+    # ── Section 1: Environment ────────────────────────────────────────────
+    import os
+    console.print("[bold]Environment[/bold]")
+
+    def _mask(value: str) -> str:
+        if not value:
+            return "[red]not set[/red]"
+        if len(value) < 8:
+            return f"[green]set[/green] [dim]({len(value)} chars)[/dim]"
+        return f"[green]set[/green] [dim]({value[:6]}…{value[-4:]}, {len(value)} chars)[/dim]"
+
+    env_keys = [
+        ("SUPABASE_URL",         "Required for community push"),
+        ("SUPABASE_SERVICE_KEY", "Required for community push"),
+        ("GAUNTLET_SUBMIT_KEY",  "Optional, override HMAC key"),
+        ("OLLAMA_HOST",          "Optional, custom Ollama server"),
+        ("LMSTUDIO_HOST",        "Optional, custom LM Studio server"),
+    ]
+    for key, note in env_keys:
+        val = os.environ.get(key, "")
+        console.print(f"  {key:<22} {_mask(val)}  [dim]{note}[/dim]")
+
+    # Where was env loaded from?
+    from pathlib import Path
+    candidates = [
+        Path.home() / ".gauntlet" / ".env",
+        Path.cwd() / ".env.vercel.local",
+        Path.cwd() / ".env.local",
+        Path.cwd() / ".env",
+    ]
+    found = [c for c in candidates if c.is_file()]
+    console.print()
+    if found:
+        console.print(f"  [green]✓[/green] env files detected:")
+        for f in found:
+            console.print(f"    [dim]{f}[/dim]")
+    else:
+        console.print(
+            "  [yellow]⚠ no .env files found[/yellow] "
+            "[dim](drop one at ~/.gauntlet/.env to auto-load)[/dim]"
+        )
+
+    # ── Section 2: Connectivity ───────────────────────────────────────────
+    console.print()
+    console.print("[bold]Connectivity[/bold]")
+    try:
+        from gauntlet.mcp.history_store import is_available
+        if is_available():
+            try:
+                import httpx
+                from gauntlet.mcp.history_store import _table_url, _headers
+                import time as _t
+                t0 = _t.time()
+                resp = httpx.get(f"{_table_url()}?select=id&limit=1", headers=_headers(), timeout=4)
+                dt = round((_t.time() - t0) * 1000)
+                if resp.status_code == 200:
+                    console.print(f"  [green]✓[/green] Supabase reachable [dim]({dt}ms)[/dim]")
+                else:
+                    console.print(f"  [red]✗[/red] Supabase HTTP {resp.status_code} [dim]({dt}ms)[/dim]")
+            except Exception as e:
+                console.print(f"  [red]✗[/red] Supabase unreachable: {type(e).__name__}: {e}")
+        else:
+            console.print("  [yellow]–[/yellow] Supabase: [dim]creds not set, skipping ping[/dim]")
+    except Exception as e:
+        console.print(f"  [red]✗[/red] Supabase check failed: {type(e).__name__}")
+
+    try:
+        import httpx as _httpx
+        import time as _t
+        from gauntlet.core.config import get_community_api_base
+        api_base = get_community_api_base()
+        t0 = _t.time()
+        resp = _httpx.get(f"{api_base}/api/health", timeout=5)
+        dt = round((_t.time() - t0) * 1000)
+        if resp.status_code == 200:
+            console.print(f"  [green]✓[/green] Public API reachable [dim]({dt}ms · {api_base})[/dim]")
+        else:
+            console.print(f"  [red]✗[/red] Public API HTTP {resp.status_code}")
+    except Exception as e:
+        console.print(f"  [red]✗[/red] Public API unreachable: {type(e).__name__}")
+
+    # ── Section 3: Hardware fingerprint preview ───────────────────────────
+    console.print()
+    console.print("[bold]Hardware fingerprint[/bold] [dim](this is what gets submitted)[/dim]")
+    try:
+        from gauntlet.core.system_info import collect_fingerprint
+        fp = collect_fingerprint("doctor-preview", provider="ollama")
+        rows = [
+            ("CPU",          f"{fp.cpu_model} ({fp.cpu_arch}, {fp.cpu_cores} cores)"),
+            ("RAM",          f"{fp.ram_total_gb:.1f} GB ({fp.ram_bucket})"),
+            ("GPU",          f"{fp.gpu_name} ({fp.gpu_class})"),
+            ("VRAM",         f"{fp.vram_gb:.1f} GB ({fp.vram_bucket})"),
+            ("Device class", fp.device_class),
+            ("OS",           f"{fp.os_platform} {fp.os_version}"),
+            ("Tier",         fp.tier_label or fp.hardware_tier or "unclassified"),
+        ]
+        for k, v in rows:
+            tag = "[red]" if "unknown" in str(v) or v == "0.0 GB" else "[green]"
+            console.print(f"  {tag}{k:<13}[/] {v}")
+    except Exception as e:
+        console.print(f"  [red]✗[/red] Fingerprint collection failed: {type(e).__name__}: {e}")
+
+    # ── Section 4: Recent local runs ──────────────────────────────────────
+    console.print()
+    console.print("[bold]Recent local benchmark runs[/bold]")
+    try:
+        from gauntlet.core.benchmark_history import list_benchmark_runs
+        recent = list_benchmark_runs(limit=5)
+        if not recent:
+            console.print("  [dim]none[/dim]")
+        else:
+            for r in recent:
+                ts = r.get("timestamp", "?")
+                # `list_benchmark_runs` returns one record per RUN, which can
+                # contain multiple models. Render one line per model so users
+                # see per-model scores not just the run timestamp.
+                scores = r.get("scores", {}) or {}
+                if not scores:
+                    console.print(f"  [dim]{ts}[/dim]  [dim](no models recorded)[/dim]")
+                    continue
+                for model, score in scores.items():
+                    if isinstance(score, (int, float)):
+                        score_str = f"{score:.1%}" if score <= 1.0 else f"{score:.1f}"
+                    else:
+                        score_str = "?"
+                    console.print(f"  [dim]{ts}[/dim]  {model:<30} {score_str}")
+    except Exception as e:
+        console.print(f"  [red]✗[/red] Could not load history: {type(e).__name__}: {e}")
+
+    # ── Section 5: Pending retry queue ────────────────────────────────────
+    console.print()
+    console.print("[bold]Pending community submissions[/bold] [dim](failed → queued for retry)[/dim]")
+    try:
+        from gauntlet.core.submit_queue import list_pending, drain
+        pending = list_pending()
+        if not pending:
+            console.print("  [green]✓[/green] queue empty")
+        else:
+            console.print(f"  [yellow]{len(pending)} queued[/yellow] — attempting drain...")
+            result = drain(timeout=6)
+            console.print(
+                f"  replayed: [green]{result['replayed']}[/green]  "
+                f"remaining: [yellow]{result['remaining']}[/yellow]  "
+                f"stopped early: {'yes' if result['stopped_early'] else 'no'}"
+            )
+    except Exception as e:
+        console.print(f"  [red]✗[/red] Queue check failed: {type(e).__name__}")
+
+    console.print()
 
 
 def entry() -> None:
