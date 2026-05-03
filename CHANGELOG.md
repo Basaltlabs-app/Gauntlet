@@ -1,5 +1,62 @@
 # Changelog
 
+## [2.1.2] - 2026-05-03
+
+### Fixes — community submission pipeline
+
+The dashboard has been silently dropping data. Three independent silent-failure paths converged into "I ran benchmarks and nothing showed up." All three are fixed in this release.
+
+- **CLI submissions were missing `hardware_tier` and `attestation`.** `gauntlet benchmark` built the payload manually instead of going through `build_attestation()`, so every CLI row landed in Supabase with `hardware_tier=""`. Tier-filtered dashboard views (Consumer-Mid, Consumer-High, Cloud) were systematically empty for CLI runs. Both fields now flow through; outcomes are surfaced inline (`✓ submitted`, `⚠ network error`, `✗ rejected (400): <reason>`) instead of being swallowed by the daemon thread's bare `except: pass`.
+- **MCP submissions used a hardcoded "serverless" placeholder fingerprint** even when the MCP server was running as a desktop subprocess (Gemini CLI, Claude Desktop, Cursor). Real RAM/CPU/GPU was being thrown away and replaced with `unknown`/`0`. `_save_mcp_results` now detects whether it's running on Vercel (`$VERCEL`) and only uses the placeholder there; desktop runs get the full `collect_fingerprint()`.
+- **`submit_result` rejection logs were at DEBUG level** (invisible without `--verbose`). Bumped to WARNING and the response body is included so the user can actually see why the API rejected their submission.
+
+### Features
+
+- **`gauntlet --version` / `gauntlet -V`**: prints version and exits. Long overdue.
+- **`gauntlet doctor`**: one-command diagnostic that prints env-var detection, `.env` file discovery, Supabase reachability, public-API reachability, current hardware fingerprint preview, last 5 local runs, and pending retry-queue status. Drains the queue while it's at it. Designed to answer "why didn't my last run show up?" in five seconds.
+- **MCP server startup banner**: prints one line on launch — `Community push: ENABLED` or `DISABLED — SUPABASE_URL / SUPABASE_SERVICE_KEY not visible to this process` — so users discover misconfiguration upfront, not after a 20-minute benchmark. Goes to stderr so it never pollutes stdio MCP frames.
+- **Persistent retry queue** (`~/.gauntlet/pending/`): when a community submit fails (network blip, Supabase outage, transient 5xx), the payload is queued to disk and replayed on the next CLI invocation. Permanent 4xx rejections are dropped after one log line — they'd never be accepted anyway. Capped at 200 files. Self-healing without user intervention.
+- **MCP write path now goes through the same validator as `/api/submit`.** A new `gauntlet/mcp/submit_validator.py` enforces score-range, model-name length, category sanity, score-consistency, probe-count, attestation shape, probe-details size caps, and dedup. Closes the gap where anyone hitting the public `/mcp` could write arbitrary scores into the leaderboard.
+- **dotenv-style env loader runs at package import** (`gauntlet/__init__.py:_bootstrap_env`). Searches `$GAUNTLET_ENV_FILE`, `.env.vercel.local`/`.env.local`/`.env` walking up to a repo root, then `~/.gauntlet/.env`. Allowlist of 10 keys; never overwrites parent-process env. Fixes "I exported `SUPABASE_URL` but Gemini CLI's gauntlet subprocess still can't see it" — MCP clients spawn children with stripped env on macOS, and gauntlet's loader compensates without requiring per-client config.
+
+### Code health
+
+- **HMAC submit key deduplicated** to `gauntlet.core.config.get_submit_key()`. Previously hardcoded as `"gauntlet-community-2026"` in both `api/index.py` and `gauntlet/core/submit.py` — easy to miss on rotation.
+- **`str(e)` leakage plugged** in three API handlers (`submit_handler`, `predict_handler`, `recommend_handler`). Errors now log server-side and return generic messages — could previously leak the internal Supabase URL.
+- **`_format_save_status` extracted** to `gauntlet/mcp/save_status.py` so it imports cleanly without FastMCP. Tests target the helper directly instead of dancing around `sys.modules`.
+
+### Tests
+
+- 42 new tests across `test_bootstrap_env.py` (env loader: priority order, allowlist, never-overwrite, walk-up, idempotence, `export`/quote stripping), `test_save_status.py` (status formatter shapes), and `test_submit_validator.py` (every validation rule).
+- Total: 552 passed, 0 failures.
+
+### Docs
+
+- New README section: **Running gauntlet as a local MCP server**. Covers the `~/.gauntlet/.env` global file, per-client `env` blocks for Gemini CLI / Claude Desktop / Cursor, the macOS Dock-launch gotcha (`.zshrc` not sourced), and the `GAUNTLET_ENV_FILE` override for CI.
+- Clarified MCP data-quality language: desktop MCP runs now produce real fingerprints, the "serverless" caveat only applies to the hosted endpoint.
+
+### QOL release additions (round 2)
+
+- **Auto-update notification** on `gauntlet benchmark`. `update_check.py` was already implemented but only wired into TUI/dashboard — now `benchmark` runs surface "Update available: vX.Y.Z → vX.Y.Z+1. Run: pipx upgrade gauntlet-cli" at the bottom of the run if a newer version exists on PyPI. Cached 24h, never blocks.
+- **`MIN_CLI_VERSION` bumped 1.3.5 → 2.0.0.** Anything below 2.0.0 pre-dates fingerprint + attestation fields and was being silently accepted with `hardware_tier=""`. The API now rejects ancient submissions outright.
+- **Hardware fingerprint reused across multi-model runs.** Was being rebuilt for every model in a benchmark suite — pointless `psutil` / `sysctl` / `nvidia-smi` calls. Now collected once per run with model-config varying per result.
+- **CTRL-C-safe submission ordering.** Previously, killing the CLI mid-submit lost the result entirely. Now the payload is enqueued to `~/.gauntlet/pending/` *before* the network call; only successful 200 deletes it. Mid-flight CTRL-C means the file stays for the next drain.
+- **`--no-submit` flag + `GAUNTLET_PRIVATE=1` env**: opt out of community submission for iteration runs. Same effect either way.
+- **`gauntlet history`**: list past local benchmark runs as a Rich table, with `--limit N` and `--model <substr>` filtering. Reads from `~/.gauntlet/benchmarks/` only — no network, no leakage.
+- **Client-side validation**: the CLI now runs `validate_submission()` against its payload before posting, so users see specific rejection reasons instantly instead of waiting for a generic 400 back from the API.
+- **`/api/version` endpoint**: returns `{server, min_supported, recommended, latest, upgrade_command, upgrade_url, release_notes}`. Lets `gauntlet doctor` and update-check warn users authoritatively.
+- **`GAUNTLET_API_URL` env override** for self-hosting / staging environments. Centralized via `gauntlet.core.config.get_community_api_base()`. Removes hardcoded `gauntlet.basaltlabs.app` from 5 files.
+- **Read endpoint cache TTLs**: `Cache-Control: max-age=30, s-maxage=60` → `max-age=300, s-maxage=900, stale-while-revalidate=86400`. Leaderboard data churns hourly, not every 30 seconds. Saves Vercel function invocations and gives users instant page loads.
+- **`/api/predict` + `/api/recommend` matrix cache**: shared 60s in-memory cache with stale-fallback. Both endpoints fetched 2000 history rows from Supabase on every request — typical dashboard / CLI usage hit Supabase 10× per minute. Now once per minute. Stale serve on Supabase outage instead of 503.
+- **Dashboard polling pauses when tab is hidden.** `useFetch` was running `setInterval(fetchData, 60_000)` regardless of tab visibility. `visibilitychange` listener stops the timer when hidden, kicks an immediate refetch on focus. Cuts Supabase chatter to ~zero for background tabs.
+- **Tests**: `validate_submission` parity for CLI, history-command smoke, `/api/version` shape, cache stale-fallback. 540 passing.
+
+### Deferred to a focused future PR
+
+- `gauntlet/dashboard/server.py` (>1200 lines) split into per-feature modules. Marked with a `TODO(refactor)` block at the top of the file naming the natural split points. Pure mechanical move — should land alone, not bundled with feature work.
+
+---
+
 ## [2.1.1] - 2026-04-21
 
 ### Features

@@ -134,9 +134,40 @@ function useFetch(url, deps = []) {
   }, [url])
 
   useEffect(() => { fetchData() }, [fetchData, ...deps])
+
+  // Poll every 60s while the tab is visible. Pausing on hidden cuts Supabase
+  // load and Vercel function invocations to ~zero when the user has the
+  // dashboard open in a background tab — which is most of the time.
   useEffect(() => {
-    const interval = setInterval(fetchData, 60_000)
-    return () => clearInterval(interval)
+    let interval = null
+
+    const start = () => {
+      if (interval !== null) return
+      interval = setInterval(fetchData, 60_000)
+    }
+    const stop = () => {
+      if (interval === null) return
+      clearInterval(interval)
+      interval = null
+    }
+
+    if (!document.hidden) start()
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        stop()
+      } else {
+        // Re-fetch immediately on tab focus so users don't see stale data
+        fetchData()
+        start()
+      }
+    }
+
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      stop()
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [fetchData])
 
   return { data, loading, error, refetch: fetchData }

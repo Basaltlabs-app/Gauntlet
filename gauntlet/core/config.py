@@ -44,6 +44,51 @@ DEFAULT_LLAMACPP_HOST = "http://localhost:8080"
 # LM Studio defaults (LM Studio's built-in local server)
 DEFAULT_LMSTUDIO_HOST = "http://localhost:1234"
 
+# ---------------------------------------------------------------------------
+# Community submit signing key
+#
+# Single source of truth — read by both gauntlet/core/submit.py (CLI side)
+# and api/index.py (server side). Override via $GAUNTLET_SUBMIT_KEY.
+#
+# Note: this is a shared CLI/server secret in an open-source repo, so it's
+# not truly secret. It stops casual abuse, not determined attackers. The
+# real defenses are the 12 validation rules + per-IP rate limiting in
+# api/index.py:submit_handler.
+# ---------------------------------------------------------------------------
+DEFAULT_SUBMIT_KEY = "gauntlet-community-2026"
+
+
+def get_submit_key() -> str:
+    """Return the active HMAC submit key (env override → default)."""
+    import os
+    return os.environ.get("GAUNTLET_SUBMIT_KEY", DEFAULT_SUBMIT_KEY)
+
+
+# ---------------------------------------------------------------------------
+# Community API base URL — single source of truth.
+#
+# Override via $GAUNTLET_API_URL for self-hosting, staging environments,
+# or local development. Trailing slashes are stripped so callers can safely
+# concatenate paths.
+# ---------------------------------------------------------------------------
+DEFAULT_COMMUNITY_API_BASE = "https://gauntlet.basaltlabs.app"
+
+
+def get_community_api_base() -> str:
+    """Return the community API base URL with no trailing slash."""
+    import os
+    return os.environ.get("GAUNTLET_API_URL", DEFAULT_COMMUNITY_API_BASE).rstrip("/")
+
+
+# ---------------------------------------------------------------------------
+# Submission privacy — set GAUNTLET_PRIVATE=1 to skip community submission
+# entirely (local-only runs). Same effect as `--no-submit` on benchmark cmds.
+# ---------------------------------------------------------------------------
+def is_submission_disabled() -> bool:
+    """True if the user has opted out of community submission."""
+    import os
+    return os.environ.get("GAUNTLET_PRIVATE", "").lower() in ("1", "true", "yes")
+
 
 @dataclass
 class ProviderConfig:

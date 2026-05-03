@@ -313,9 +313,9 @@ def gauntlet_respond(
     result = runner.advance(response)
 
     if result["status"] == "complete":
-        _save_mcp_results(result["result"], runner.quick)
+        save_status = _save_mcp_results(result["result"], runner.quick)
         _delete_runner(session_id)
-        return result["message"]
+        return result["message"] + _format_save_status(save_status)
 
     if result["status"] == "error":
         return f"ERROR: {result['message']}"
@@ -511,43 +511,109 @@ def gauntlet_leaderboard(tier: str = "") -> str:
     return "\n".join(lines)
 
 
-def _save_mcp_results(result_dict: dict, quick: bool):
-    """Persist MCP benchmark results to the same store as CLI/dashboard."""
+def _save_mcp_results(result_dict: dict, quick: bool) -> dict:
+    """Persist MCP benchmark results to the same store as CLI/dashboard.
+
+    Returns a status dict the caller can surface to the user:
+        {
+            "local": "saved" | "failed: <reason>",
+            "community": "saved" | "skipped: <reason>" | "failed: <reason>",
+        }
+
+    The two destinations are independent: local always attempts, community push
+    requires SUPABASE_URL + SUPABASE_SERVICE_KEY to be visible to this process.
+    """
+    status: dict[str, str] = {}
+
+    # ── Local history (feeds the dashboard's My-runs / history panels) ─────
     try:
         from gauntlet.core.benchmark_history import save_benchmark_run
         save_benchmark_run([result_dict], quick=quick)
-        logger.info("Benchmark results saved")
+        logger.info("Benchmark results saved locally")
+        status["local"] = "saved"
     except Exception as e:
-        logger.warning(f"Failed to save benchmark results: {e}")
+        logger.warning(f"Failed to save benchmark results locally: {e}")
+        status["local"] = f"failed: {type(e).__name__}"
 
-    # Also push to public test history
+    # ── Community push (feeds the public leaderboard) ──────────────────────
     try:
         from gauntlet.mcp.history_store import record_test_result, is_available
-        if is_available():
-            # MCP runs on Vercel serverless, limited fingerprint (no local hardware)
+        if not is_available():
+            # Most common cause: Supabase env vars not visible to this
+            # subprocess. Tell the user how to fix it rather than silently
+            # no-op'ing like before.
+            status["community"] = (
+                "skipped: SUPABASE_URL / SUPABASE_SERVICE_KEY not set in this "
+                "process env (check your MCP client's server config or place "
+                "them in .env / .env.vercel.local at the repo root)"
+            )
+        else:
+            # Build the fingerprint based on where the MCP server actually runs:
+            #   - Vercel serverless (public /mcp endpoint): no real host to
+            #     fingerprint — keep the "serverless" placeholder.
+            #   - Desktop MCP client (Gemini CLI, Claude Desktop, Cursor): the
+            #     server is a local subprocess on the user's machine. Detect
+            #     the real CPU / RAM / GPU / OS — anything else throws away
+            #     legitimate data and pollutes the leaderboard with blanks.
             from gauntlet.core.system_info import SystemFingerprint
-            mcp_fingerprint = SystemFingerprint(
-                provider="mcp",
-                model_family=result_dict.get("model", "unknown").split(":")[0],
-                quantization="cloud",
-                model_format="api",
-                os_platform="serverless",
-            )
+            model_name = result_dict.get("model", "unknown")
+            is_serverless = bool(os.environ.get("VERCEL"))
 
-            record_test_result(
-                model_name=result_dict.get("model", "unknown"),
-                overall_score=result_dict.get("overall_score", 0),
-                trust_score=result_dict.get("trust_score", 0),
-                grade=result_dict.get("grade", "?"),
-                category_scores=result_dict.get("category_scores", {}),
-                total_probes=result_dict.get("total_tests", 0),
-                passed_probes=result_dict.get("total_passed", 0),
-                source="mcp",
-                quick=quick,
-                fingerprint=mcp_fingerprint,
-            )
+            if is_serverless:
+                mcp_fingerprint = SystemFingerprint(
+                    provider="mcp",
+                    model_family=model_name.split(":")[0],
+                    quantization="cloud",
+                    model_format="api",
+                    os_platform="serverless",
+                    device_class="cloud",
+                )
+            else:
+                # Real host — full fingerprint. Provider stays "mcp" so the
+                # MCP-vs-CLI distinction is preserved on the leaderboard.
+                from gauntlet.core.system_info import collect_fingerprint
+                mcp_fingerprint = collect_fingerprint(model_name, provider="mcp")
+
+            # Validate before writing — closes the gap where MCP submissions
+            # bypassed the 12-point validator that /api/submit enforces.
+            from gauntlet.mcp.submit_validator import validate_submission
+            hw, _, _ = mcp_fingerprint.to_storage_dicts()
+            validation_payload = {
+                "model_name": model_name,
+                "overall_score": result_dict.get("overall_score", 0),
+                "category_scores": result_dict.get("category_scores", {}),
+                "total_probes": result_dict.get("total_tests", 0),
+                "hardware": hw,
+            }
+            err = validate_submission(validation_payload)
+            if err is not None:
+                logger.warning("MCP submission rejected by validator: %s", err)
+                status["community"] = f"rejected: {err}"
+            else:
+                record_test_result(
+                    model_name=model_name,
+                    overall_score=result_dict.get("overall_score", 0),
+                    trust_score=result_dict.get("trust_score", 0),
+                    grade=result_dict.get("grade", "?"),
+                    category_scores=result_dict.get("category_scores", {}),
+                    total_probes=result_dict.get("total_tests", 0),
+                    passed_probes=result_dict.get("total_passed", 0),
+                    source="mcp",
+                    quick=quick,
+                    fingerprint=mcp_fingerprint,
+                    hardware_tier=mcp_fingerprint.hardware_tier,
+                )
+                status["community"] = "saved"
     except Exception as e:
-        logger.warning(f"Failed to push to test history: {e}")
+        logger.warning(f"Failed to push to community test history: {e}")
+        status["community"] = f"failed: {type(e).__name__}"
+
+    return status
+
+
+# Re-exported from gauntlet.mcp.save_status so callers can import either spot.
+# The implementation lives there so tests can import it without pulling FastMCP.
+from gauntlet.mcp.save_status import format_save_status as _format_save_status
 
 
 # ---------------------------------------------------------------------------
@@ -556,14 +622,34 @@ def _save_mcp_results(result_dict: dict, quick: bool):
 
 def run_server(transport: str = "stdio", host: str = "127.0.0.1", port: int = 8484):
     """Start the MCP server."""
+    import sys
+
     mcp.settings.host = host
     mcp.settings.port = port
 
+    # Startup banner — prints to stderr so it never pollutes stdio MCP frames.
+    # Tells the user upfront whether community push will work, so they don't
+    # discover it silently no-op'd after a 20-minute benchmark run.
+    from gauntlet.mcp.history_store import is_available as _community_available
+    from gauntlet import __version__ as _gauntlet_version
+
+    banner_lines = [f"[gauntlet {_gauntlet_version}] MCP server ready ({transport})"]
+    if _community_available():
+        banner_lines.append("[gauntlet] Community push: ENABLED (Supabase reachable)")
+    else:
+        banner_lines.append(
+            "[gauntlet] Community push: DISABLED — SUPABASE_URL / "
+            "SUPABASE_SERVICE_KEY not visible to this process. "
+            "Place them in ~/.gauntlet/.env or your MCP client's `env` block."
+        )
+    for line in banner_lines:
+        print(line, file=sys.stderr, flush=True)
+
     if transport in ("sse", "streamable-http"):
-        print(f"Gauntlet MCP server starting on http://{host}:{port}")
+        print(f"Gauntlet MCP server starting on http://{host}:{port}", file=sys.stderr)
         if transport == "sse":
-            print(f"  SSE endpoint:  http://{host}:{port}/sse")
+            print(f"  SSE endpoint:  http://{host}:{port}/sse", file=sys.stderr)
         else:
-            print(f"  HTTP endpoint: http://{host}:{port}/mcp")
+            print(f"  HTTP endpoint: http://{host}:{port}/mcp", file=sys.stderr)
 
     mcp.run(transport=transport)
